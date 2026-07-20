@@ -1,0 +1,56 @@
+# dig-store — the DIG Network DataLayer store manager.
+#
+# A store is the composition of an ON-CHAIN anchor (a CHIP-0035 DataLayer singleton, owned by
+# `dig-merkle`, whose metadata carries the `.dig` merkle root + label/description/size_bucket/
+# program_hash) and an OFF-CHAIN data plane (the `.dig` capsule format, owned by `dig-capsule`).
+# `dig-store` composes the two into ONE curated store abstraction: the lifecycle of a store as a
+# coin that gets SPENT (create / modify / melt), a comprehensive set of on-chain getters, and the
+# SIZE PROOF that lets a client decide — before downloading — whether a `.dig`'s real size matches
+# what the store anchored on chain (a mismatch → discard).
+#
+# Boundary (inherited from dig-merkle): dig-store is PURE + network-free at its core. Lifecycle
+# operations return UNSIGNED spends (the wallet-backend / node signs + broadcasts); on-chain getters
+# take a `ChainSource` the caller supplies. dig-store never holds a key, never signs, never dials the
+# network itself.
+[package]
+name = "dig-store"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.81.0"
+license = "Apache-2.0 OR MIT"
+description = "The DIG Network DataLayer store manager: composes the on-chain CHIP-0035 DataLayer anchor (dig-merkle) with the off-chain .dig capsule format into one store abstraction — create/modify/melt a store coin (unsigned SpendBundles), a comprehensive on-chain getter surface, and the size proof that gates downloads on the on-chain-anchored size."
+repository = "https://github.com/DIG-Network/dig-store"
+readme = "README.md"
+keywords = ["dig", "chia", "datalayer", "chip-0035", "store"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
+
+[lib]
+name = "dig_store"
+# rlib for native consumers; cdylib so a later unit can compile a wasm façade over the same crate.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The crate error taxonomy (SPEC §6). thiserror 2 matches the sibling DIG crates.
+thiserror = "2"
+
+# --- The composition dependencies (SPEC §11), all live on crates.io (no git deps). ---
+# The on-chain DataLayer anchor: the CHIP-0035 coin lifecycle (mint/update/melt), the on-chain
+# read/hydrate/lineage walk, owner-DID discovery, `DigDataStoreMetadata`, and `SizeBucket`. dig-store
+# re-exports its coin/identity types verbatim so consumers depend on ONE canonical shape.
+dig-merkle = "0.4"
+# The ONE canonical chain-source read interface (`ChainSource`) every on-chain getter is generic over.
+dig-chainsource-interface = "0.1"
+# The canonical `urn:dig:chia:…` scheme + retrieval-key derivation (the single ecosystem definition,
+# re-exported through dig-capsule's `urn` facade; dig-store depends on the foundation owner directly to
+# stay light — the off-chain capsule reader lands with the deferred capsule getters, SPEC §11).
+dig-urn-protocol = "0.1"
+
+[dev-dependencies]
+# Ergonomic `?`-propagating Result in tests.
+anyhow = "1"
+# The in-memory ChainSource mock for the on-chain getter tests (walk / owner discovery).
+dig-chainsource-interface = { version = "0.1", features = ["testing"] }
+# The in-process CHIP-0035 simulator + BLS test harness for the lifecycle + getter tests (never
+# broadcasts — validates spends locally). Pinned to the exact family dig-merkle rides (INV-4).
+chia-wallet-sdk = { version = "0.30", features = ["chip-0035"] }
+chia-puzzle-types = "0.26"

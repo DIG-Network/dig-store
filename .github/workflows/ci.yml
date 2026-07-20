@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Format / Clippy / Build / Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Check clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Check documentation
+        run: cargo doc --no-deps
+
+  coverage:
+    name: Coverage (>=80% lines)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      # Unit + integration coverage, CI-gated at >=80% lines (ecosystem standard). Run through
+      # nextest so llvm-cov instruments the SAME execution (a separate `cargo test` collects zero
+      # coverage). `--retries 2` reports a flaky test rather than hard-failing while keeping coverage
+      # intact.
+      #
+      # SCAFFOLD EXCLUSION (issue #1247, removed on the compose pass): lifecycle.rs / store.rs /
+      # chain.rs are pure `todo!()` scaffolding gated on dig-merkle 0.3.0 + dig-capsule publishing
+      # (SPEC §11) — their bodies cannot be meaningfully exercised until the deps are wired, so they
+      # The compose pass (#1247) filled the lifecycle + on-chain-getter bodies, so the WHOLE crate is
+      # now gated at >=80% lines (the earlier scaffold-only ignore regex has been dropped).
+      - name: Run tests with coverage (nextest, retries 2, gate >=80% lines)
+        run: >-
+          cargo llvm-cov nextest --all
+          --retries 2
+          --fail-under-lines 80
+          --lcov --output-path lcov.info
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov-coverage
+          path: lcov.info
+          if-no-files-found: error

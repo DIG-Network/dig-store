@@ -1,0 +1,93 @@
+name: Publish to crates.io
+
+# Tag-driven release: pushing a version tag `vX.Y.Z` runs the gates, publishes to crates.io, and
+# cuts a GitHub Release. A normal push to `main` runs the gates only (see ci.yml) — it does NOT
+# publish. Mirrors the sibling DIG crates so the same org secrets apply.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # No fmt/clippy/test/coverage re-run here: the PR that produced this tagged commit already went
+  # through ci.yml's full gate set before it was allowed to merge. This workflow is build + package +
+  # publish only.
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify the package builds
+        run: cargo build --release
+
+      - name: Verify the package can be packaged
+        run: cargo package --locked
+
+      - name: Check CARGO_REGISTRY_TOKEN is set
+        run: |
+          if [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "CARGO_REGISTRY_TOKEN secret is not set in repository settings"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: extract_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "dig-store v${{ steps.extract_version.outputs.VERSION }}"
+          body: |
+            ## dig-store v${{ steps.extract_version.outputs.VERSION }}
+
+            The DIG Network DataLayer store manager: composes the on-chain CHIP-0035 DataLayer
+            anchor (dig-merkle) with the off-chain .dig capsule format (dig-capsule) into one store
+            abstraction — create/modify/melt a store coin (unsigned SpendBundles), a comprehensive
+            getter surface, and the size proof that gates downloads on the on-chain-anchored size.
+
+            ### Installation
+            ```toml
+            [dependencies]
+            dig-store = "${{ steps.extract_version.outputs.VERSION }}"
+            ```
+          draft: false
+          prerelease: false

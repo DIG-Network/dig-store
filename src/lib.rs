@@ -75,7 +75,15 @@ pub use store::{
     get_store_size_bucket, get_store_urn,
 };
 pub use types::{
-    Bytes32, CapsuleIdentity, Coin, CoinSpend, DataStore, DidRef, DigDataStoreMetadata,
-    MerkleCoinSpend, RootHistory,
+    Bytes32, CapsuleIdentity, Coin, CoinSpend, DataStore, DelegatedPuzzle, DidRef,
+    DigDataStoreMetadata, LineageProof, MerkleCoinSpend, Proof, RootHistory,
 };
+
+/// Derives the [`LineageProof`] a child singleton spend must carry to be recreated from a hydrated
+/// store (the lineage-getter surface). Re-exported verbatim from `dig-merkle` (the byte-source-of-
+/// truth, INV-4) so a consumer builds the next spend against a store the walk returned without a
+/// separate `dig-merkle` dependency. `dig-merkle` 0.4.3 derives its `parent_inner_puzzle_hash` via
+/// the DataLayer updater path, so the resulting child spend is consensus-valid (no
+/// `AssertMyParentIdFailed`, #1332).
+pub use dig_merkle::child_lineage_proof;
 pub use urn::{capsule_urn, retrieval_key, store_urn, URN_PREFIX};

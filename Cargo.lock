@@ -880,9 +880,9 @@ dependencies = [
 
 [[package]]
 name = "dig-merkle"
-version = "0.4.0"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06c1ccc26f4f889032f724ade55d88e7606c9949d0ea15518f728c7de99d46e3"
+checksum = "1dcc3f7b4de976bc2670a01ab241d02f929c8c6688d8a48b1f1885e13476dac6"
 dependencies = [
  "chia-protocol",
  "chia-puzzle-types",
@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "dig-store"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chia-puzzle-types",

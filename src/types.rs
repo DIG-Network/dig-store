@@ -8,7 +8,10 @@
 //! - [`Coin`] / [`CoinSpend`] — the Chia coin + confirmed spend;
 //! - [`DataStore`] / [`DigDataStoreMetadata`] — the hydrated DataLayer coin + its on-chain metadata;
 //! - [`DidRef`] — a reference to an owning DID by its launcher id;
-//! - [`MerkleCoinSpend`] — the unsigned result of a lifecycle operation (coin spends + child store).
+//! - [`MerkleCoinSpend`] — the unsigned result of a lifecycle operation (coin spends + child store);
+//! - [`Proof`] / [`LineageProof`] — a singleton's eve-or-lineage proof and the lineage proof a child
+//!   spend must carry (see [`crate::child_lineage_proof`]);
+//! - [`DelegatedPuzzle`] — an admin/writer/oracle delegated puzzle a store may carry (SPEC §5).
 //!
 //! Two `dig-store`-owned view types are added here:
 //!
@@ -20,7 +23,8 @@
 //!   type rather than exposing `dig-capsule`'s separate `Bytes32`.
 
 pub use dig_merkle::{
-    Bytes32, Coin, CoinSpend, DataStore, DidRef, DigDataStoreMetadata, MerkleCoinSpend,
+    Bytes32, Coin, CoinSpend, DataStore, DelegatedPuzzle, DidRef, DigDataStoreMetadata,
+    LineageProof, MerkleCoinSpend, Proof,
 };
 
 /// The ordered history of merkle roots a store has anchored, oldest first.

@@ -19,8 +19,9 @@
 //!    [`SizeVerdict::Discard`]ed — a dig-node MUST NOT store or serve a size-mismatched capsule.
 //! 3. **Getters** — a comprehensive read surface over both planes:
 //!    - **on-chain** (chain-proven, NC-9): [`get_store_did_owner`], [`get_store_singleton_tip`],
-//!      [`get_root_history`], [`get_latest_root`], [`get_latest_root_urn`], [`get_store_urn`], and the
-//!      label / description / size / program-hash getters;
+//!      [`get_root_history`], [`get_latest_root`], [`get_latest_root_urn`], [`get_store_urn`], the
+//!      label / description / size / program-hash getters, and [`get_store_status`] — the aggregate
+//!      status snapshot from ONE consistent lineage walk;
 //!    - **off-chain** (from a compiled `.dig` module's bytes, wasmtime-free): [`get_capsule_identity`]
 //!      recovers a capsule's declared `(store_id, root_hash)`, and [`open_capsule`] additionally
 //!      cross-checks the declared `store_id` against a trusted anchor (fail-closed).
@@ -72,11 +73,12 @@ pub use size::{SizeBucket, SizeProof, SizeVerdict};
 pub use store::{
     get_latest_root, get_latest_root_urn, get_root_history, get_store_description,
     get_store_did_owner, get_store_label, get_store_program_hash, get_store_singleton_tip,
-    get_store_size_bucket, get_store_urn,
+    get_store_size_bucket, get_store_status, get_store_urn, DEFAULT_CONFIRMATION_TARGET,
 };
 pub use types::{
-    Bytes32, CapsuleIdentity, Coin, CoinSpend, DataStore, DelegatedPuzzle, DidRef,
-    DigDataStoreMetadata, LineageProof, MerkleCoinSpend, Proof, RootHistory,
+    Bytes32, CapsuleIdentity, Coin, CoinSpend, Confirmations, DataStore, DelegatedPuzzle, DidRef,
+    DigDataStoreMetadata, LineageProof, MerkleCoinSpend, Proof, RootHistory, StoreStatus,
+    StoreStatusKind,
 };
 
 /// Derives the [`LineageProof`] a child singleton spend must carry to be recreated from a hydrated

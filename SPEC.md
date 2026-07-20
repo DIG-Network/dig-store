@@ -128,6 +128,37 @@ the chain (INV-4).
   - `get_latest_root(chain, store_id) -> Bytes32` — the root at the tip.
   - `get_store_label` / `get_store_description` / `get_store_size_bucket` / `get_store_program_hash` —
     the corresponding on-chain metadata field read off the tip (`Option`, omitted-when-absent).
+  - `get_store_status(chain, store_id, confirmation_target) -> StoreStatus` — the AGGREGATE status of
+    a store from ONE consistent lineage walk plus ONE supplementary read on the already-resolved tip
+    (never a second walk). It is the machine-consumable snapshot a CLI/RPC surface renders.
+
+    `StoreStatus` fields (every identifier is bare lowercase hex, byte-identical to the URN body form,
+    so `store_id` equals the id in the store's `urn:dig:chia:<store_id>`):
+
+    | field | `NotFound` | `Melted` | `Live` |
+    |---|---|---|---|
+    | `status` (`live`/`melted`/`not_found`) | `not_found` | `melted` | `live` |
+    | `store_id` | the requested id | the requested id | the requested id |
+    | `generation_count` | `0` | roots anchored while live | roots anchored (incl. tip) |
+    | `live_root` | `None` | `None` | tip `metadata.root_hash` |
+    | `owner_puzzle_hash` | `None` | `None` | tip `info.owner_puzzle_hash` |
+    | `program_hash` | `None` | `None` | tip `metadata.program_hash` (`Option`) |
+    | `coin_id` | `None` | `None` | tip `coin.coin_id()` |
+    | `confirmations` `{have,target}` | `None` | `None` | see below |
+    | `verified` | `false` | `false` | see below |
+    | `head_signature` | `None` | `None` | `None` (always — see §7) |
+
+    Single-walk consistency + fail-closed rules (NC-9):
+    - Every field derives from ONE `walk_outcome`, so the snapshot cannot tear across a mid-flight
+      spend the way calling each getter (each re-walking) could.
+    - `confirmations` is `Some { have = peak.saturating_sub(confirmed_height), target =
+      confirmation_target }` ONLY when the source exposed BOTH `peak_height()` and the tip's
+      `confirmed_height`; otherwise `None`. `DEFAULT_CONFIRMATION_TARGET = 32`.
+    - `verified = coin_record(tip).map(|r| !r.is_spent()).unwrap_or(false)` — read off the SAME
+      resolved tip coin; a MISSING record yields `false`. The status is never self-asserted.
+    - If the walk concluded `Live` (tip unspent, `coin_spend(tip) == None`) but the tip's coin record
+      reports it SPENT, the two reads contradict — `get_store_status` returns `DigStoreError::Proof`
+      rather than papering over a stale `Live`.
 - Lineage proof (no chain read). `child_lineage_proof(store) -> LineageProof` (re-exported verbatim
   from `dig-merkle`, INV-4) derives the `LineageProof` a child singleton spend must carry to be
   recreated from a hydrated store — so a consumer builds the next spend against a store the walk
@@ -163,6 +194,13 @@ Result<Option<CoinSpend>, C::Error>` fail-closed lookup (`Ok(None)` = the coin i
 `Err(_)` = the source could not answer, mapped into `DigStoreError::Proof`). Lineage walks (owner
 discovery, root history, tip) are repeated `coin_spend` lookups composed with `dig-merkle`'s
 `hydrate`. The source MUST be trusted for custody-grade reads (INV-4 / NC-9 F1).
+
+`get_store_status` additionally reads `coin_record(tip)` (for `verified` + `confirmed_height`) and
+`peak_height()` on the already-resolved tip. `StoreStatus::head_signature` is ALWAYS `None`: a per-coin
+BLS head signature is structurally unavailable through `ChainSource`, whose reads yield `CoinSpend`
+(coin + puzzle reveal + solution) with no signature attached. The field ships present-but-`None` for
+forward-compat; a routed follow-up sources the signature out-of-band and populates it without a
+breaking change (additive, §5.1 discipline on the value surface).
 
 ## 8. Security properties
 

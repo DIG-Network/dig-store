@@ -14,7 +14,7 @@
 # network itself.
 [package]
 name = "dig-store"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.81.0"
 license = "Apache-2.0 OR MIT"
@@ -32,6 +32,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # The crate error taxonomy (SPEC §6). thiserror 2 matches the sibling DIG crates.
 thiserror = "2"
+
+# Serialize/Deserialize for the aggregate `StoreStatus` view (SPEC §5): a JSON-serializable status
+# snapshot a CLI/RPC surface renders. String/enum/scalar fields only — no chia byte types cross serde.
+serde = { version = "1", features = ["derive"] }
 
 # --- The composition dependencies (SPEC §11), all live on crates.io (no git deps). ---
 # The on-chain DataLayer anchor: the CHIP-0035 coin lifecycle (mint/update/melt), the on-chain
@@ -53,6 +57,8 @@ dig-urn-protocol = "0.1"
 [dev-dependencies]
 # Ergonomic `?`-propagating Result in tests.
 anyhow = "1"
+# JSON round-trip assertions for the `StoreStatus` serde surface.
+serde_json = "1"
 # The in-memory ChainSource mock for the on-chain getter tests (walk / owner discovery).
 dig-chainsource-interface = { version = "0.1", features = ["testing"] }
 # The in-process CHIP-0035 simulator + BLS test harness for the lifecycle + getter tests (never

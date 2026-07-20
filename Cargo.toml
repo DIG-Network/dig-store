@@ -14,7 +14,7 @@
 # network itself.
 [package]
 name = "dig-store"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.81.0"
 license = "Apache-2.0 OR MIT"
@@ -38,6 +38,11 @@ thiserror = "2"
 # read/hydrate/lineage walk, owner-DID discovery, `DigDataStoreMetadata`, and `SizeBucket`. dig-store
 # re-exports its coin/identity types verbatim so consumers depend on ONE canonical shape.
 dig-merkle = "0.4"
+# The off-chain `.dig` data plane. The `reader` feature is the lightweight, wasmtime-free capsule
+# reader (`Capsule::from_module_bytes`) the off-chain capsule getters compose (SPEC §5/§11) — it pulls
+# ONLY wasmparser (no wasmtime, no chia-bls, no store), and carries NO chia-sdk dependency, so the
+# single chia-wallet-sdk tree stays owned by dig-merkle.
+dig-capsule = { version = "0.5", features = ["reader"], default-features = false }
 # The ONE canonical chain-source read interface (`ChainSource`) every on-chain getter is generic over.
 dig-chainsource-interface = "0.1"
 # The canonical `urn:dig:chia:…` scheme + retrieval-key derivation (the single ecosystem definition,

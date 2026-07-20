@@ -17,10 +17,13 @@
 //!    (1 MB..1 GB, NC-8 minimal encoding). Before keeping a downloaded `.dig`, a client runs
 //!    [`SizeProof::verify`]: a real size that does not match the anchored bucket is
 //!    [`SizeVerdict::Discard`]ed — a dig-node MUST NOT store or serve a size-mismatched capsule.
-//! 3. **Getters** — a comprehensive, chain-proven (NC-9) read surface over every on-chain property
-//!    ([`get_store_did_owner`], [`get_store_singleton_tip`], [`get_root_history`],
-//!    [`get_latest_root`], [`get_latest_root_urn`], [`get_store_urn`], and the label / description /
-//!    size / program-hash getters).
+//! 3. **Getters** — a comprehensive read surface over both planes:
+//!    - **on-chain** (chain-proven, NC-9): [`get_store_did_owner`], [`get_store_singleton_tip`],
+//!      [`get_root_history`], [`get_latest_root`], [`get_latest_root_urn`], [`get_store_urn`], and the
+//!      label / description / size / program-hash getters;
+//!    - **off-chain** (from a compiled `.dig` module's bytes, wasmtime-free): [`get_capsule_identity`]
+//!      recovers a capsule's declared `(store_id, root_hash)`, and [`open_capsule`] additionally
+//!      cross-checks the declared `store_id` against a trusted anchor (fail-closed).
 //!
 //! The coin/identity types ([`Bytes32`], [`Coin`], [`CoinSpend`], [`DataStore`], [`DidRef`],
 //! [`DigDataStoreMetadata`], [`MerkleCoinSpend`]) and the owner type ([`StoreOwner`]) are re-exported
@@ -38,18 +41,20 @@
 //!   wholesale to `dig-merkle`, which owns the minimal byte layout; the size is a single-byte bucket.
 //! - **INV-4 — On-chain proof always (NC-9).** Every getter that returns chain-anchored data proves
 //!   it against the chain; trust never comes from a self-declared field or an unverified peer.
-//! - **INV-5 — `.dig` back-compat (§5.1).** The (deferred) capsule surface reads every older `.dig`
-//!   format identically; the public API is extended additively, never broken.
+//! - **INV-5 — `.dig` back-compat (§5.1).** The capsule surface reads every older `.dig` format
+//!   identically (inherited from `dig-capsule`'s reader, which dispatches on the DIGS blob version); the
+//!   public API is extended additively, never broken.
 //!
-//! ## Off-chain capsule getters — deferred (SPEC §11)
+//! ## The `store_id` trust boundary (off-chain capsule getters)
 //!
-//! `open_capsule` / `get_capsule_identity` are NOT in this version: `dig-capsule 0.4.0` exposes no
-//! lightweight `bytes → (store_id, root_hash)` reader (the only path is the full wasmtime serve
-//! runtime). A `Capsule::from_module_bytes` reader is being added to `dig-capsule` release-first and
-//! the capsule getters land in a follow-up unit. The download-gating [`SizeProof`] needs no capsule
-//! open and is complete here.
+//! [`get_capsule_identity`] recovers a capsule's DECLARED `store_id` from module bytes. That id is the
+//! store's on-chain launcher id and is NOT self-verifiable from the bytes alone — treat it as a CLAIM
+//! until cross-checked against a trusted anchor. [`open_capsule`] does that cross-check against a
+//! caller-supplied anchor and fails closed on mismatch. The `root_hash` is always proven internally
+//! consistent by the reader (it recomputes the merkle root and rejects a forged one).
 
 // Public modules.
+pub mod capsule;
 pub mod chain;
 pub mod error;
 pub mod lifecycle;
@@ -59,6 +64,7 @@ pub mod types;
 pub mod urn;
 
 // The curated public surface — consumers depend on these paths, not the module layout.
+pub use capsule::{get_capsule_identity, open_capsule};
 pub use chain::ChainSource;
 pub use error::{DigStoreError, DigStoreResult};
 pub use lifecycle::{create_store, melt_store, modify_store, CreateStoreParams, StoreOwner};
@@ -69,6 +75,7 @@ pub use store::{
     get_store_size_bucket, get_store_urn,
 };
 pub use types::{
-    Bytes32, Coin, CoinSpend, DataStore, DidRef, DigDataStoreMetadata, MerkleCoinSpend, RootHistory,
+    Bytes32, CapsuleIdentity, Coin, CoinSpend, DataStore, DidRef, DigDataStoreMetadata,
+    MerkleCoinSpend, RootHistory,
 };
 pub use urn::{capsule_urn, retrieval_key, store_urn, URN_PREFIX};

@@ -128,10 +128,18 @@ the chain (INV-4).
   - `get_latest_root(chain, store_id) -> Bytes32` — the root at the tip.
   - `get_store_label` / `get_store_description` / `get_store_size_bucket` / `get_store_program_hash` —
     the corresponding on-chain metadata field read off the tip (`Option`, omitted-when-absent).
-- Off-chain (`.dig` via `dig-capsule`) — **DEFERRED** (§11): `open_capsule` / `get_capsule_identity`
-  are not in this version because `dig-capsule 0.4.0` exposes no lightweight `bytes → (store_id,
-  root_hash)` reader. They land once `dig-capsule` ships a `Capsule::from_module_bytes` reader
-  (release-first). The download-gating SIZE PROOF (§4) needs no capsule open and is complete now.
+- Off-chain (`.dig` via `dig-capsule`) — read a capsule's declared identity from a compiled `.dig`
+  module's bytes the caller supplies, wasmtime-free, WITHOUT any chain read (§11). Both compose
+  `dig_capsule::capsule::Capsule::from_module_bytes` (the `reader` feature): it recomputes the merkle
+  root from the module's committed leaves and rejects a forged `CurrentRoot` fail-closed, so the
+  returned `root_hash` is always internally consistent. A read failure surfaces as
+  `DigStoreError::Capsule`.
+  - `get_capsule_identity(module_bytes) -> CapsuleIdentity` — the DECLARED `(store_id, root_hash)`. The
+    `store_id` is the on-chain launcher id and is NOT self-verifiable from the bytes; the caller MUST
+    cross-check it against a trusted anchor before trusting it (§8).
+  - `open_capsule(module_bytes, expected_store_id) -> CapsuleIdentity` — recovers the identity and
+    cross-checks the declared `store_id` against the caller's trusted anchor, failing closed
+    (`DigStoreError::Capsule`) on mismatch. The returned identity is thus bound to that anchor.
 
 ## 6. Errors
 
@@ -165,8 +173,11 @@ discovery, root history, tip) are repeated `coin_spend` lookups composed with `d
   drift from the on-chain encoding (test `size::tests::re_exported_ladder_is_canonical`).
 - The URN scheme + retrieval key are the re-exported `dig-urn-protocol` definition (delegated, so they
   match the browser verifier by construction; test `urn::tests::retrieval_key_matches_dig_urn_protocol`).
-- Golden `.dig` fixtures of each released format version decode byte-identically — added with the
-  deferred off-chain capsule getters (§11; INV-5 / CLAUDE.md §5.1).
+- Golden `.dig` fixtures decode byte-identically forever (INV-5 / CLAUDE.md §5.1): the frozen
+  `tests/fixtures/golden_capsule_module.hex` (a real compiled `.dig` module whose `store_id` is
+  `[0xAB; 32]` and whose `CurrentRoot` is the merkle root of leaves `[0x33; 32], [0x44; 32]`) MUST keep
+  reading through `get_capsule_identity` (test `capsule::tests::get_capsule_identity_recovers_the_declared_pair`).
+  Older `.dig` blob versions read via the version-dispatching `dig-capsule` reader (inherited back-compat).
 
 ## 10. Crate hierarchy + publishing
 
@@ -176,10 +187,11 @@ discovery, root history, tip) are repeated `coin_spend` lookups composed with `d
 (reference-DOWN-only). It is consumed by `dig-wallet-backend`, which sits above it. It publishes to
 crates.io (no git deps); consumers depend on the crates.io version.
 
-## 11. Composition + the deferred off-chain getters (issue #1247)
+## 11. Composition (issues #1247, #1313)
 
-The compose pass wired the live crates.io dependencies (`dig-merkle 0.4`, `dig-chainsource-interface
-0.1`, `dig-urn-protocol 0.1`) and filled every lifecycle + on-chain-getter body:
+`dig-store` wires the live crates.io dependencies (`dig-merkle 0.4`, `dig-capsule 0.5` `reader`,
+`dig-chainsource-interface 0.1`, `dig-urn-protocol 0.1`) and fills every lifecycle, on-chain-getter, and
+off-chain capsule-getter body:
 
 - **`dig-merkle 0.4`** — `mint_datastore_with_kind` (create), `update_root` (modify), `melt` (melt),
   `hydrate` + `resolve_owner_did` (the on-chain read walk), and the re-exported `SizeBucket` / `Owner`
@@ -188,15 +200,32 @@ The compose pass wired the live crates.io dependencies (`dig-merkle 0.4`, `dig-c
 - **`dig-chainsource-interface 0.1`** — the canonical `ChainSource` every on-chain getter is generic
   over (its associated `Error` is mapped into `DigStoreError::Proof`).
 - **`dig-urn-protocol 0.1`** — the canonical `DigUrn` the URN helpers delegate to (the same definition
-  `dig-capsule` re-exports at `dig_capsule::urn`; `dig-store` depends on the foundation owner directly
-  to avoid pulling `dig-capsule`'s heavy serve stack for URN formatting alone).
+  `dig-capsule` re-exports at `dig_capsule::urn`; `dig-store` depends on the foundation owner directly so
+  URN formatting needs no `dig-capsule` feature).
+- **`dig-capsule 0.5` (`reader` only)** — the lightweight, wasmtime-free `Capsule::from_module_bytes`
+  the off-chain capsule getters compose (see below). `default-features = false` + `features =
+  ["reader"]` keeps `dig-capsule`'s heavy serve/compile stack (wasmtime, chia-bls) out of the tree.
 
-### Deferred: the off-chain `.dig` capsule getters
+### The off-chain `.dig` capsule getters
 
-`open_capsule` / `get_capsule_identity` are NOT in this version. `dig-capsule 0.4.0` exposes no
-lightweight `bytes → (store_id, root_hash)` reader: `Capsule` offers only `canonical()` /
-`from_canonical(&str)`, and reading a compiled `.dig` module's embedded identity requires the full
-wasmtime `HostRuntime` (with the `store_id` already injected + a chain source + prover + BLS keys). A
-`Capsule::from_module_bytes` reader is therefore being added to `dig-capsule` release-first, and the
-capsule getters (plus the golden-fixture back-compat tests, §9) land in a follow-up unit. The
-download-gating SIZE PROOF (§4) needs no capsule open and ships now.
+`get_capsule_identity` / `open_capsule` compose `dig-capsule 0.5`'s `reader` feature — the lightweight,
+wasmtime-free `dig_capsule::capsule::Capsule::from_module_bytes(&[u8]) -> Result<Capsule,
+reader::ModuleReadError>`. The reader parses the module's embedded DIGS data section, reads `StoreId` +
+`CurrentRoot`, and FAIL-CLOSED recomputes the merkle root from the committed `MerkleNodes` leaves,
+rejecting a forged `CurrentRoot`. It pulls only `wasmparser` — no wasmtime, no chia-bls, no store — and
+carries NO chia-sdk dependency, so `dig-store`'s single `chia-wallet-sdk` tree stays owned by
+`dig-merkle` (verified: one `chia-wallet-sdk v0.30.0` in the tree).
+
+`dig-capsule`'s own `Capsule` uses its own `Bytes32`; `dig-store` returns [`CapsuleIdentity`] built on
+the canonical (`dig-merkle`) `Bytes32`, so the whole store surface speaks ONE byte type. A
+`ModuleReadError` maps to `DigStoreError::Capsule`.
+
+**`store_id` trust boundary (§8).** `from_module_bytes` returns `store_id` = the on-chain launcher id,
+which is NOT self-verifiable from the module bytes alone. `get_capsule_identity` therefore returns it as
+a CLAIM the caller MUST cross-check; `open_capsule` performs that cross-check against a caller-supplied
+trusted anchor and fails closed on mismatch. Neither getter over-claims that `root_hash` is the
+publisher's LATEST authorized root — the chain remains the authority for that (an on-chain getter is
+used to learn the latest root).
+
+`dig-store` is network-free (INV-1): both getters take CALLER-PROVIDED module bytes — they never fetch a
+store or dial the network.

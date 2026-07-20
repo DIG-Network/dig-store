@@ -10,8 +10,14 @@
 //! - [`DidRef`] — a reference to an owning DID by its launcher id;
 //! - [`MerkleCoinSpend`] — the unsigned result of a lifecycle operation (coin spends + child store).
 //!
-//! [`RootHistory`] is the one `dig-store`-owned view type: the ordered list of merkle roots a store
-//! has anchored across its generations, produced by the on-chain lineage walk (SPEC §5).
+//! Two `dig-store`-owned view types are added here:
+//!
+//! - [`RootHistory`] — the ordered list of merkle roots a store has anchored across its generations,
+//!   produced by the on-chain lineage walk (SPEC §5);
+//! - [`CapsuleIdentity`] — the `(store_id, root_hash)` a capsule declares, recovered OFF-CHAIN from a
+//!   compiled `.dig` module's bytes (SPEC §5/§11). It is the `dig-store`-native view (canonical
+//!   [`Bytes32`]) of a `dig_capsule::capsule::Capsule`, so the whole store surface speaks ONE byte
+//!   type rather than exposing `dig-capsule`'s separate `Bytes32`.
 
 pub use dig_merkle::{
     Bytes32, Coin, CoinSpend, DataStore, DidRef, DigDataStoreMetadata, MerkleCoinSpend,
@@ -40,12 +46,54 @@ impl RootHistory {
     }
 }
 
+/// The identity a capsule declares: one immutable store generation, the pair `(store_id, root_hash)`.
+///
+/// Recovered OFF-CHAIN from a compiled `.dig` module's bytes by [`crate::get_capsule_identity`] /
+/// [`crate::open_capsule`] (SPEC §5/§11). This is `dig-store`'s canonical-[`Bytes32`] view of a
+/// `dig_capsule::capsule::Capsule`.
+///
+/// # `store_id` is NOT self-verified
+///
+/// `root_hash` is proven internally consistent by the reader (it recomputes the merkle root from the
+/// module's committed leaves and rejects a forged one). `store_id`, however, is the store's on-chain
+/// Chia launcher id, baked into the module at compile time and NOT self-verifiable from the module
+/// bytes alone — nothing in the bytes binds them to that launcher. Treat a `store_id` from
+/// [`crate::get_capsule_identity`] as a CLAIM until cross-checked against a trusted anchor (the URN you
+/// resolved, the on-chain singleton, or a verified `ChainSource`). [`crate::open_capsule`] performs
+/// that cross-check for you.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CapsuleIdentity {
+    /// The store's on-chain launcher id (a CLAIM until cross-checked — see the type docs).
+    pub store_id: Bytes32,
+    /// The merkle root of this capsule generation, proven internally consistent by the reader.
+    pub root_hash: Bytes32,
+}
+
+impl CapsuleIdentity {
+    /// The capsule URN `urn:dig:chia:<store_id>:<root_hash>` pinning this exact generation.
+    pub fn capsule_urn(&self) -> String {
+        crate::urn::capsule_urn(self.store_id, self.root_hash)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn id(b: u8) -> Bytes32 {
         Bytes32::new([b; 32])
+    }
+
+    #[test]
+    fn capsule_identity_formats_its_pinning_urn() {
+        let identity = CapsuleIdentity {
+            store_id: id(0xaa),
+            root_hash: id(0xbb),
+        };
+        assert_eq!(
+            identity.capsule_urn(),
+            format!("urn:dig:chia:{}:{}", "aa".repeat(32), "bb".repeat(32))
+        );
     }
 
     #[test]

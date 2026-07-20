@@ -44,3 +44,5 @@ dig-store = "0.2"
 ## License
 
 Licensed under either of Apache-2.0 or MIT at your option.
+
+<!-- wip: off-chain capsule getters #1313 -->

@@ -6,14 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org) and
 
 ## [0.4.0] - 2026-07-20
 
-### Bug Fixes
-- **deps:** Bump dig-merkle 0.4 -> 0.4.3 so the re-exposed lineage getter inherits the
-  child_lineage_proof consensus fix (consensus-valid child spend, no AssertMyParentIdFailed) (#1332)
-
-### Features
-- **types:** Expose the lineage-getter surface — `child_lineage_proof`, `LineageProof`, `Proof`,
-  `DelegatedPuzzle` — so a consumer builds the next spend against a walked store without a separate
-  dig-merkle dependency
+### Chores
+- **deps:** Bump dig-merkle 0.4 -> 0.4.3 (child_lineage_proof consensus fix, #1332) (#3)
 
 ## [0.3.0] - 2026-07-20
 
@@ -27,3 +21,5 @@ This project adheres to [Semantic Versioning](https://semver.org) and
 
 ### Chores
 - Initialize dig-store repo
+
+

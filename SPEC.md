@@ -128,6 +128,13 @@ the chain (INV-4).
   - `get_latest_root(chain, store_id) -> Bytes32` — the root at the tip.
   - `get_store_label` / `get_store_description` / `get_store_size_bucket` / `get_store_program_hash` —
     the corresponding on-chain metadata field read off the tip (`Option`, omitted-when-absent).
+- Lineage proof (no chain read). `child_lineage_proof(store) -> LineageProof` (re-exported verbatim
+  from `dig-merkle`, INV-4) derives the `LineageProof` a child singleton spend must carry to be
+  recreated from a hydrated store — so a consumer builds the next spend against a store the walk
+  returned. The `parent_inner_puzzle_hash` is derived via the DataLayer metadata-updater path (currying
+  `DL_METADATA_UPDATER_PUZZLE_HASH`), byte-matching a real on-chain DataLayer coin, so the resulting
+  child spend is consensus-valid (no `AssertMyParentIdFailed`) for both the empty- and delegated-inner
+  cases. `dig-store` pins `dig-merkle >= 0.4.3`, the version that first derives it this way.
 - Off-chain (`.dig` via `dig-capsule`) — read a capsule's declared identity from a compiled `.dig`
   module's bytes the caller supplies, wasmtime-free, WITHOUT any chain read (§11). Both compose
   `dig_capsule::capsule::Capsule::from_module_bytes` (the `reader` feature): it recomputes the merkle

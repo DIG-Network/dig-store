@@ -14,7 +14,7 @@
 # network itself.
 [package]
 name = "dig-store"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.81.0"
 license = "Apache-2.0 OR MIT"
@@ -37,7 +37,7 @@ thiserror = "2"
 # The on-chain DataLayer anchor: the CHIP-0035 coin lifecycle (mint/update/melt), the on-chain
 # read/hydrate/lineage walk, owner-DID discovery, `DigDataStoreMetadata`, and `SizeBucket`. dig-store
 # re-exports its coin/identity types verbatim so consumers depend on ONE canonical shape.
-dig-merkle = "0.4"
+dig-merkle = "0.4.3"
 # The off-chain `.dig` data plane. The `reader` feature is the lightweight, wasmtime-free capsule
 # reader (`Capsule::from_module_bytes`) the off-chain capsule getters compose (SPEC §5/§11) — it pulls
 # ONLY wasmparser (no wasmtime, no chia-bls, no store), and carries NO chia-sdk dependency, so the

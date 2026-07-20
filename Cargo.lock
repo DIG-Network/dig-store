@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "dig-store"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chia-puzzle-types",
@@ -905,6 +905,8 @@ dependencies = [
  "dig-chainsource-interface",
  "dig-merkle",
  "dig-urn-protocol",
+ "serde",
+ "serde_json",
  "thiserror 2.0.19",
 ]
 

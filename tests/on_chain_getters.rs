@@ -10,7 +10,8 @@ use dig_store::{
     capsule_urn, create_store, get_latest_root, get_latest_root_urn, get_root_history,
     get_store_description, get_store_did_owner, get_store_label, get_store_program_hash,
     get_store_singleton_tip, get_store_size_bucket, melt_store, modify_store, Bytes32, CoinSpend,
-    CreateStoreParams, DataStore, DigDataStoreMetadata, MerkleCoinSpend, SizeBucket, StoreOwner,
+    CreateStoreParams, DataStore, DigDataStoreMetadata, DigStoreError, MerkleCoinSpend, SizeBucket,
+    StoreOwner,
 };
 
 /// The `CoinSpend` in `built` that spent the coin with id `coin_id`.
@@ -51,6 +52,76 @@ fn minted(
     sim.spend_coins(built.coin_spends.clone(), std::slice::from_ref(&owner.sk))?;
     let eve = built.child.clone().expect("mint yields a child");
     Ok((owner, eve, built))
+}
+
+/// Mints a store with the given root under a fresh owner, settles it, and returns the eve DataStore
+/// plus the mint's coin spends — for building hostile chain-source fixtures across two stores.
+fn mint_root(
+    sim: &mut Simulator,
+    root: Bytes32,
+) -> anyhow::Result<(DataStore<DigDataStoreMetadata>, MerkleCoinSpend)> {
+    let owner = sim.bls(1_000_000);
+    let owner_ph: Bytes32 = StandardArgs::curry_tree_hash(owner.pk).into();
+    let built = create_store(
+        owner.coin,
+        StoreOwner::Standard(owner.pk),
+        owner_ph,
+        CreateStoreParams {
+            root_hash: root,
+            size: SizeBucket::from_exponent(0).unwrap(),
+            label: None,
+            description: None,
+            program_hash: None,
+            fee: 0,
+        },
+    )?;
+    sim.spend_coins(built.coin_spends.clone(), std::slice::from_ref(&owner.sk))?;
+    let eve = built.child.clone().expect("mint yields a child");
+    Ok((eve, built))
+}
+
+/// NC-9 adversarial regression: a chain source that returns a DIFFERENT store's (valid) launcher
+/// spend for `coin_spend(store_id)` MUST fail closed, never answer with the other store's root. Fails
+/// without the launcher-id / per-hop-coin-id assertions in `walk_lineage_bounded`.
+#[test]
+fn substituted_launcher_fails_closed() -> anyhow::Result<()> {
+    let mut sim = Simulator::new();
+    let (eve_a, _mint_a) = mint_root(&mut sim, Bytes32::new([0xaa; 32]))?;
+    let store_id_a = eve_a.info.launcher_id;
+    let (eve_b, mint_b) = mint_root(&mut sim, Bytes32::new([0xbb; 32]))?;
+    let store_id_b = eve_b.info.launcher_id;
+
+    // Hostile source: asked for store A's launcher, it returns store B's launcher spend.
+    let chain = MockChainSource::new().with_spend(store_id_a, spend_of(&mint_b, store_id_b));
+
+    match get_latest_root(&chain, store_id_a) {
+        Err(DigStoreError::Proof(_)) => {}
+        other => panic!("substituted launcher must fail closed with Proof, got {other:?}"),
+    }
+    Ok(())
+}
+
+/// NC-9 adversarial regression: an honest launcher hop but a SECOND hop whose returned spend is for a
+/// different coin than requested MUST fail closed. Fails without the per-hop coin-id assertion.
+#[test]
+fn per_hop_coin_id_mismatch_fails_closed() -> anyhow::Result<()> {
+    let mut sim = Simulator::new();
+    let (eve_a, mint_a) = mint_root(&mut sim, Bytes32::new([0xaa; 32]))?;
+    let store_id_a = eve_a.info.launcher_id;
+    let (eve_b, mint_b) = mint_root(&mut sim, Bytes32::new([0xbb; 32]))?;
+    let store_id_b = eve_b.info.launcher_id;
+
+    // Launcher hop honest; the walk then asks coin_spend(eve_a.coin) and the source lies with a spend
+    // for store B's launcher coin (a different coin id).
+    let chain = MockChainSource::new()
+        .with_spend(store_id_a, spend_of(&mint_a, store_id_a))
+        .with_spend(eve_a.coin.coin_id(), spend_of(&mint_b, store_id_b));
+
+    match get_root_history(&chain, store_id_a) {
+        Err(DigStoreError::Proof(_)) => {}
+        other => panic!("per-hop coin-id mismatch must fail closed with Proof, got {other:?}"),
+    }
+    Ok(())
 }
 
 /// A two-generation store (mint → modify) reports both roots in order, the tip carries the latest

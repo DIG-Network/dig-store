@@ -7,44 +7,71 @@
 //! - the **capsule / root URN** (`urn:dig:chia:<store_id>:<root_hash>`) PINS one immutable
 //!   generation — the pair `(store_id, root_hash)` is exactly a capsule.
 //!
-//! Both `store_id` and `root_hash` are rendered lowercase hex. This mirrors the canonical
-//! `dig-urn-protocol` scheme byte-for-byte; on the compose pass (SPEC §11) [`store_urn`] /
-//! [`capsule_urn`] delegate to `dig_capsule::urn::DigUrn` so the scheme lives in ONE place.
+//! The scheme, canonical form, and retrieval-key derivation are owned by the canonical
+//! [`dig_urn_protocol`] crate (the ONE ecosystem definition, re-exported through the `dig-capsule`
+//! `urn` facade). `dig-store` delegates every URN operation to it so the scheme lives in a single
+//! place and cannot drift, converting only between the re-exported [`Bytes32`] and the protocol's own
+//! 32-byte identifier at the boundary.
 
+use dig_urn_protocol::{Bytes32 as UrnBytes32, DigUrn, CANONICAL_CHAIN};
+
+use crate::error::{DigStoreError, DigStoreResult};
 use crate::types::Bytes32;
-use sha2::{Digest, Sha256};
 
-/// The fixed URN prefix for the Chia-anchored DIG content scheme.
+/// The fixed URN prefix for the Chia-anchored DIG content scheme (`urn:dig:` + the canonical `chia`
+/// chain label). Pinned against the protocol's own prefix + chain by
+/// [`tests::prefix_matches_protocol`].
 pub const URN_PREFIX: &str = "urn:dig:chia:";
+
+/// Converts a store/root [`Bytes32`] into the protocol crate's own 32-byte identifier at the URN
+/// boundary — both are the identical 32 raw bytes.
+fn to_urn_bytes(value: Bytes32) -> UrnBytes32 {
+    let mut raw = [0u8; 32];
+    raw.copy_from_slice(value.as_ref());
+    UrnBytes32(raw)
+}
 
 /// The ROOTLESS store URN: `urn:dig:chia:<store_id>`.
 ///
 /// Names the store across every generation — the stable handle for "the latest content of this
 /// store". Use [`capsule_urn`] to pin a specific root.
 pub fn store_urn(store_id: Bytes32) -> String {
-    format!("{URN_PREFIX}{}", store_id.to_hex())
+    DigUrn {
+        chain: CANONICAL_CHAIN.to_string(),
+        store_id: to_urn_bytes(store_id),
+        root_hash: None,
+        resource_key: None,
+    }
+    .canonical()
 }
 
 /// The capsule / root URN: `urn:dig:chia:<store_id>:<root_hash>`.
 ///
 /// Pins the immutable generation `(store_id, root_hash)` — the on-wire name of one capsule.
 pub fn capsule_urn(store_id: Bytes32, root_hash: Bytes32) -> String {
-    format!("{URN_PREFIX}{}:{}", store_id.to_hex(), root_hash.to_hex())
+    DigUrn {
+        chain: CANONICAL_CHAIN.to_string(),
+        store_id: to_urn_bytes(store_id),
+        root_hash: Some(to_urn_bytes(root_hash)),
+        resource_key: None,
+    }
+    .canonical()
 }
 
-/// The retrieval key of a URN: `SHA-256(urn)` over its canonical (lowercase) string.
+/// The retrieval key of a URN: `SHA-256(canonical(urn))`.
 ///
 /// This is the URN-identity key that PINS the content — byte-identical to
-/// `dig_urn_protocol::DigUrn::retrieval_key` and to the browser verifier. A rootless store URN and a
-/// rooted capsule URN therefore have DISTINCT retrieval keys (the root is part of the canonical
-/// string), which is why a client fetching a pinned generation keys on the capsule URN.
-pub fn retrieval_key(urn: &str) -> Bytes32 {
-    let mut hasher = Sha256::new();
-    hasher.update(urn.as_bytes());
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    Bytes32(out)
+/// [`DigUrn::retrieval_key`] and to the browser verifier. A rootless store URN and a rooted capsule
+/// URN therefore have DISTINCT retrieval keys (the root is part of the canonical string), which is
+/// why a client fetching a pinned generation keys on the capsule URN.
+///
+/// # Errors
+///
+/// Returns [`DigStoreError::InvalidUrn`] if `urn` is not a parseable DIG URN.
+pub fn retrieval_key(urn: &str) -> DigStoreResult<Bytes32> {
+    let parsed =
+        DigUrn::parse(urn).map_err(|error| DigStoreError::InvalidUrn(format!("{urn}: {error}")))?;
+    Ok(Bytes32::new(parsed.retrieval_key().0))
 }
 
 #[cfg(test)]
@@ -52,7 +79,15 @@ mod tests {
     use super::*;
 
     fn id(byte: u8) -> Bytes32 {
-        Bytes32([byte; 32])
+        Bytes32::new([byte; 32])
+    }
+
+    #[test]
+    fn prefix_matches_protocol() {
+        assert_eq!(
+            URN_PREFIX,
+            format!("{}{CANONICAL_CHAIN}:", dig_urn_protocol::URN_PREFIX)
+        );
     }
 
     #[test]
@@ -72,31 +107,27 @@ mod tests {
     }
 
     #[test]
-    fn retrieval_key_is_sha256_of_the_urn_string() {
+    fn retrieval_key_matches_dig_urn_protocol() {
         let urn = store_urn(id(0x01));
-        let expected = {
-            let mut h = Sha256::new();
-            h.update(urn.as_bytes());
-            let d = h.finalize();
-            let mut o = [0u8; 32];
-            o.copy_from_slice(&d);
-            Bytes32(o)
-        };
-        assert_eq!(retrieval_key(&urn), expected);
+        let expected = DigUrn::parse(&urn).unwrap().retrieval_key();
+        assert_eq!(retrieval_key(&urn).unwrap(), Bytes32::new(expected.0));
     }
 
     #[test]
     fn store_and_capsule_urns_have_distinct_retrieval_keys() {
         let store = store_urn(id(0x05));
         let capsule = capsule_urn(id(0x05), id(0x06));
-        assert_ne!(retrieval_key(&store), retrieval_key(&capsule));
+        assert_ne!(
+            retrieval_key(&store).unwrap(),
+            retrieval_key(&capsule).unwrap()
+        );
     }
 
     #[test]
-    fn store_id_round_trips_through_hex() {
-        let original = id(0x7f);
-        let urn = store_urn(original);
-        let hex = urn.trim_start_matches(URN_PREFIX);
-        assert_eq!(Bytes32::from_hex(hex).unwrap(), original);
+    fn retrieval_key_rejects_a_non_urn() {
+        assert!(matches!(
+            retrieval_key("not-a-urn"),
+            Err(DigStoreError::InvalidUrn(_))
+        ));
     }
 }

@@ -41,10 +41,59 @@ pub enum DigStoreError {
     Proof(String),
 
     /// The underlying `.dig` capsule (`dig-capsule`) could not be opened, parsed, or read.
+    ///
+    /// Reserved for the deferred off-chain capsule getters (SPEC §11) — no operation in this crate
+    /// version returns it yet, but it is part of the stable surface consumers match on.
     #[error("capsule error: {0}")]
     Capsule(String),
 
     /// A spend could not be constructed by the on-chain anchor (`dig-merkle`).
     #[error("spend-build error: {0}")]
     Spend(String),
+}
+
+impl From<dig_merkle::MerkleError> for DigStoreError {
+    /// Maps a `dig-merkle` failure into the store taxonomy. An out-of-range size stays an
+    /// [`DigStoreError::InvalidSize`]; every other `dig-merkle` error is a spend-construction failure
+    /// ([`DigStoreError::Spend`]). Read paths that need the [`DigStoreError::Proof`] framing map
+    /// explicitly at the call site rather than through this conversion.
+    fn from(error: dig_merkle::MerkleError) -> Self {
+        match error {
+            dig_merkle::MerkleError::InvalidSize(message) => DigStoreError::InvalidSize(message),
+            other => DigStoreError::Spend(other.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An out-of-range `dig-merkle` size maps to [`DigStoreError::InvalidSize`], preserving the detail.
+    #[test]
+    fn merkle_invalid_size_maps_to_invalid_size() {
+        let err: DigStoreError = dig_merkle::MerkleError::InvalidSize("too big".into()).into();
+        match err {
+            DigStoreError::InvalidSize(message) => assert_eq!(message, "too big"),
+            other => panic!("expected InvalidSize, got {other:?}"),
+        }
+    }
+
+    /// Every other `dig-merkle` failure maps to [`DigStoreError::Spend`] (a spend-construction error).
+    #[test]
+    fn other_merkle_errors_map_to_spend() {
+        let err: DigStoreError = dig_merkle::MerkleError::NotDataStore.into();
+        assert!(matches!(err, DigStoreError::Spend(_)));
+    }
+
+    /// The `Display` rendering carries the mismatch detail for logs.
+    #[test]
+    fn size_proof_mismatch_displays_detail() {
+        let err = DigStoreError::SizeProofMismatch {
+            anchored_k: 7,
+            actual_k: 6,
+            actual_bytes: 64,
+        };
+        assert!(err.to_string().contains("size-proof mismatch"));
+    }
 }

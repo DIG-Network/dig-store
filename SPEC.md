@@ -47,30 +47,38 @@ hold across the whole crate:
 ## 3. Lifecycle — a store is a coin that gets spent
 
 Three operations span a store's life; each is a spend of the singleton and returns an UNSIGNED
-`StoreSpend` (INV-2). The on-chain encoding is `dig-merkle`'s (INV-3).
+`MerkleCoinSpend` (INV-2, re-exported verbatim from `dig-merkle`: the coin spends + the recreated
+child `DataStore`). The on-chain encoding is `dig-merkle`'s (INV-3). `StoreOwner` is a re-export of
+`dig_merkle::Owner` (`Standard(PublicKey)` | `Custom(Spend)`).
 
-### 3.1 `create_store(parent_coin_id, owner, params) -> StoreSpend`
+### 3.1 `create_store(parent_coin, owner, owner_puzzle_hash, params) -> MerkleCoinSpend`
 
-Launches a new store coin. `parent_coin_id` funds + parents the launcher, so `launcher_id ==
-store_id` derives from it. `params` (`CreateStoreParams`) carries the first `root_hash`, the `size`
-bucket (§4, REQUIRED — every store anchors its size), and optional `label` / `description` /
-`program_hash`, plus the launch `fee`.
+Launches a new store coin. `parent_coin` (a full `Coin`) funds + parents the launcher, so
+`launcher_id == store_id` derives from its `coin_id`. `owner` authorizes the parent spend;
+`owner_puzzle_hash` is the store owner recorded in the singleton. `params` (`CreateStoreParams`)
+carries the first `root_hash`, the `size` bucket (§4, REQUIRED — every store anchors its size), and
+optional `label` / `description` / `program_hash`, plus the launch `fee`. The store is minted with the
+`StoreKind::File` launcher discriminator, byte-identical to existing on-chain DIG stores. Composes
+`dig_merkle::mint_datastore_with_kind`.
 
-To root a store in a DID, the caller passes the DID-authorized coin as parent with an
+To root a store in a DID, the caller passes the DID-authorized coin as `parent_coin` with a
 `StoreOwner::Custom` inner spend satisfying the DID puzzle; owner discovery (§7) then resolves the
 DID via `dig-merkle`. `create_store` MUST anchor `size` in the on-chain metadata so §4 can be checked.
 
-### 3.2 `modify_store(store_tip, owner, new_root, fee) -> StoreSpend`
+### 3.2 `modify_store(store, owner, new_root) -> MerkleCoinSpend`
 
-Spends the current tip coin (`store_tip`, from §7) to recreate the singleton anchoring `new_root` — a
-new generation. `store_id` is preserved. The size bucket MAY be re-anchored when the new generation's
-size changes bucket; a `modify` that changes the `.dig` size to a different bucket MUST update the
-anchored `size_bucket` so §4 stays truthful.
+Spends the current tip coin to recreate the singleton anchoring `new_root` — a new generation.
+`store` is the already-hydrated tip `DataStore` (from §7's `get_store_singleton_tip`), so this builder
+stays a pure transform (INV-1). `store_id`, owner, and delegation set are preserved, and every OTHER
+anchored metadata field (label, description, size bucket, program hash) is carried forward unchanged
+(`dig-merkle` replaces metadata wholesale, so `modify_store` re-sends the existing fields with only
+`root_hash` updated). Composes `dig_merkle::update_root`. Attaching a reserve fee to a modify is a
+`dig-merkle` future unit (its `fee` module is a stub); the coin is recreated at its current amount.
 
-### 3.3 `melt_store(store_tip, owner, fee) -> StoreSpend`
+### 3.3 `melt_store(store, owner) -> MerkleCoinSpend`
 
-Terminally spends the tip coin with no successor, closing the store. No future generation can be
-anchored after a melt.
+Terminally spends the tip `DataStore` with no successor (`child == None`), closing the store. No
+future generation can be anchored after a melt. Composes `dig_merkle::melt`.
 
 ## 4. Size + size proof (the net-new contract)
 
@@ -98,26 +106,32 @@ the artifact.
 The getter surface is comprehensive over both planes. On-chain getters (§7) prove every value against
 the chain (INV-4).
 
-- URN (no chain read for the rootless form):
+- URN (no chain read for the rootless form). The scheme, canonical form, and key derivation are owned
+  by the canonical `dig-urn-protocol` crate (re-exported through the `dig-capsule` `urn` facade);
+  `dig-store` delegates to it so the scheme lives in one place:
   - `get_store_urn(store_id) -> String` — the ROOTLESS `urn:dig:chia:<store_id>`; the stable handle
     across all generations.
   - `get_latest_root_urn(chain, store_id) -> String` — `urn:dig:chia:<store_id>:<latest_root>`, the
     capsule URN pinning the latest generation (reads the tip first).
-  - `store_urn` / `capsule_urn` / `retrieval_key` format the canonical scheme; `retrieval_key(urn) =
-    SHA-256(urn)`, byte-identical to `dig-urn-protocol`.
-- On-chain (NC-9):
+  - `store_urn` / `capsule_urn` format the canonical scheme; `retrieval_key(urn) -> Result<Bytes32>` =
+    `SHA-256(canonical(urn))`, byte-identical to `dig-urn-protocol` (fails closed on a non-URN input).
+- On-chain (NC-9), all generic over the canonical `dig_chainsource_interface::ChainSource` (§7). The
+  reads share ONE lineage walk (launcher spend → hydrate each generation → follow the singleton to the
+  unspent tip; a `MissingLineage` hydration marks a melt), fail-closed at every missing hop:
   - `get_store_did_owner(chain, store_id) -> Option<DidRef>` — the owning DID, resolved by walking the
-    launcher's parent spend; `None` for a non-DID mint.
-  - `get_store_singleton_tip(chain, store_id) -> StoreTip` — the current confirmed tip coin.
-  - `get_root_history(chain, store_id) -> RootHistory` — every anchored root, oldest → newest.
+    launcher's parent spend (`dig_merkle::resolve_owner_did`); `None` for a non-DID mint.
+  - `get_store_singleton_tip(chain, store_id) -> DataStore<DigDataStoreMetadata>` — the current
+    confirmed tip, fully hydrated so it feeds `modify_store` / `melt_store` directly; errors if the
+    store is absent or melted (no live tip).
+  - `get_root_history(chain, store_id) -> RootHistory` — every anchored root, oldest → newest (a
+    melted store still reports the roots it anchored while live).
   - `get_latest_root(chain, store_id) -> Bytes32` — the root at the tip.
   - `get_store_label` / `get_store_description` / `get_store_size_bucket` / `get_store_program_hash` —
-    the corresponding on-chain metadata field (`Option`, omitted-when-absent).
-- Off-chain (`.dig` via `dig-capsule`):
-  - `open_capsule(dig_bytes) -> OpenCapsule` — open + self-verify a `.dig`.
-  - `get_capsule_identity(capsule) -> (store_id, root_hash)` — the capsule's pinned pair.
-  - Further `.dig` properties (manifest, visibility, generation, resource list) are read through the
-    `dig-capsule` facade; they are added additively (INV-5).
+    the corresponding on-chain metadata field read off the tip (`Option`, omitted-when-absent).
+- Off-chain (`.dig` via `dig-capsule`) — **DEFERRED** (§11): `open_capsule` / `get_capsule_identity`
+  are not in this version because `dig-capsule 0.4.0` exposes no lightweight `bytes → (store_id,
+  root_hash)` reader. They land once `dig-capsule` ships a `Capsule::from_module_bytes` reader
+  (release-first). The download-gating SIZE PROOF (§4) needs no capsule open and is complete now.
 
 ## 6. Errors
 
@@ -127,11 +141,13 @@ added additively; an existing variant's meaning never changes.
 
 ## 7. The `ChainSource` boundary
 
-On-chain getters are generic over `C: ChainSource`, a caller-supplied source of confirmed coin
-spends (`coin_spend(coin_id) -> Option<CoinSpendBytes>`, fail-closed). Lineage walks (owner
-discovery, root history) are repeated `coin_spend` lookups. The source MUST be trusted for
-custody-grade reads (INV-4 / NC-9 F1). On the compose pass this trait is replaced by the published
-`dig_chainsource_interface::ChainSource`.
+On-chain getters are generic over `C: ChainSource` — the ONE canonical
+`dig_chainsource_interface::ChainSource` (re-exported at `dig_store::ChainSource`), a caller-supplied
+reads-only source of confirmed chain state. The store surface uses its `coin_spend(coin_id) ->
+Result<Option<CoinSpend>, C::Error>` fail-closed lookup (`Ok(None)` = the coin is unspent/unknown;
+`Err(_)` = the source could not answer, mapped into `DigStoreError::Proof`). Lineage walks (owner
+discovery, root history, tip) are repeated `coin_spend` lookups composed with `dig-merkle`'s
+`hydrate`. The source MUST be trusted for custody-grade reads (INV-4 / NC-9 F1).
 
 ## 8. Security properties
 
@@ -145,50 +161,42 @@ custody-grade reads (INV-4 / NC-9 F1). On the compose pass this trait is replace
 
 ## 9. Conformance
 
-- The size ladder + byte→bucket mapping match `dig_merkle::SizeBucket` byte-for-byte (test
-  `size::tests::ladder_matches_dig_merkle`).
-- The URN scheme + retrieval key match `dig-urn-protocol` / the browser verifier.
-- Golden `.dig` fixtures of each released format version decode byte-identically (added on the compose
-  pass with the `dig-capsule` dependency; INV-5 / CLAUDE.md §5.1).
+- The size ladder + byte→bucket mapping are the re-exported `dig_merkle::SizeBucket`, so they cannot
+  drift from the on-chain encoding (test `size::tests::re_exported_ladder_is_canonical`).
+- The URN scheme + retrieval key are the re-exported `dig-urn-protocol` definition (delegated, so they
+  match the browser verifier by construction; test `urn::tests::retrieval_key_matches_dig_urn_protocol`).
+- Golden `.dig` fixtures of each released format version decode byte-identically — added with the
+  deferred off-chain capsule getters (§11; INV-5 / CLAUDE.md §5.1).
 
 ## 10. Crate hierarchy + publishing
 
-`dig-store` depends on `dig-merkle` + `dig-capsule` (both level `00-foundation`) → it sits ABOVE them
-in the crate hierarchy (proposed level `10-primitives`, reference-down-only). It is consumed by
-`dig-wallet-backend`, which sits above it. It publishes to crates.io (no git deps); consumers depend
-on the crates.io version.
+`dig-store` depends on `dig-merkle` + `dig-capsule` (both level `10-primitives`) and
+`dig-chainsource-interface` + `dig-urn-protocol` (level `00-foundation`). Depending on two
+`10-primitives` crates, it sits ABOVE them at level **`20-domain`** in the crate hierarchy
+(reference-DOWN-only). It is consumed by `dig-wallet-backend`, which sits above it. It publishes to
+crates.io (no git deps); consumers depend on the crates.io version.
 
-## 11. Scaffold status + compose pass (issue #1247)
+## 11. Composition + the deferred off-chain getters (issue #1247)
 
-This crate is a DESIGN-FIRST scaffold. `dig-merkle 0.3.0` (the `size_bucket` line) and the
-single-crate `dig-capsule` (post-#1270 collapse) are NOT yet on crates.io; the `no git deps` rule
-(CLAUDE.md §3.6) forbids wiring them before they publish. Therefore:
+The compose pass wired the live crates.io dependencies (`dig-merkle 0.4`, `dig-chainsource-interface
+0.1`, `dig-urn-protocol 0.1`) and filled every lifecycle + on-chain-getter body:
 
-- **Implemented + tested now:** the `size` ladder + size proof (§4), the `urn` formatting (§5), the
-  `error` taxonomy (§6), and the `types` identifier surface. `get_store_urn` is live.
-- **Scaffolded (`todo!()`, signatures final):** the lifecycle (§3) and the on-chain / off-chain
-  getters (§5/§7). Their dep-gated tests are `#[ignore]`d with the gate reason.
+- **`dig-merkle 0.4`** — `mint_datastore_with_kind` (create), `update_root` (modify), `melt` (melt),
+  `hydrate` + `resolve_owner_did` (the on-chain read walk), and the re-exported `SizeBucket` / `Owner`
+  / `Bytes32` / `Coin` / `CoinSpend` / `DataStore` / `DidRef` / `DigDataStoreMetadata` /
+  `MerkleCoinSpend` types (so the ladder + coin shapes live in ONE place).
+- **`dig-chainsource-interface 0.1`** — the canonical `ChainSource` every on-chain getter is generic
+  over (its associated `Error` is mapped into `DigStoreError::Proof`).
+- **`dig-urn-protocol 0.1`** — the canonical `DigUrn` the URN helpers delegate to (the same definition
+  `dig-capsule` re-exports at `dig_capsule::urn`; `dig-store` depends on the foundation owner directly
+  to avoid pulling `dig-capsule`'s heavy serve stack for URN formatting alone).
 
-The **compose pass** adds the dependencies and fills the `todo!()`s:
+### Deferred: the off-chain `.dig` capsule getters
 
-- `dig-merkle = "0.3"` — `mint_datastore`, the `update` / `melt` / `read` / `lineage` operations,
-  `resolve_owner_did`, `DigDataStoreMetadata`, `DidRef`, and `SizeBucket` (re-export, replacing the
-  local mirror so the ladder lives in ONE place).
-- `dig-capsule = "0.3"` — the `capsule` / `format` / `metadata` reader for `open_capsule` + the
-  off-chain getters.
-- `dig-chainsource-interface` — the canonical `ChainSource` (replaces the local placeholder trait).
-- `chia-wallet-sdk` (chip-0035) + `chia-protocol` — `Coin` / `CoinSpend` / `Bytes32` / `SpendBundle`.
-
-### Required upstream APIs (routed to the dig-wallet-backend family)
-
-These must exist on the published deps for the compose pass; some are `dig-merkle` future units:
-
-- `dig_merkle::update::*` — recreate the coin with a new root (SPEC §3.2 there) — for `modify_store`.
-- `dig_merkle::melt::*` — terminal spend — for `melt_store`.
-- `dig_merkle::read` / `hydrate` / `lineage` — parse tip state + walk lineage — for
-  `get_store_singleton_tip` / `get_root_history` / `get_latest_root` / the metadata getters.
-- `dig_merkle::read::resolve_owner_did<C: ChainSource>(store_id, chain)` — the DID owner walk
-  (currently a `PENDING dig-chainsource-interface` stub in `dig-merkle`) — for `get_store_did_owner`.
-- `dig-merkle 0.3.0` published to crates.io with `SizeBucket` exported (currently 0.2.0 is live).
-- `dig-capsule` single-crate facade published to crates.io with the `capsule` / `metadata` read
-  surface.
+`open_capsule` / `get_capsule_identity` are NOT in this version. `dig-capsule 0.4.0` exposes no
+lightweight `bytes → (store_id, root_hash)` reader: `Capsule` offers only `canonical()` /
+`from_canonical(&str)`, and reading a compiled `.dig` module's embedded identity requires the full
+wasmtime `HostRuntime` (with the `store_id` already injected + a chain source + prover + BLS keys). A
+`Capsule::from_module_bytes` reader is therefore being added to `dig-capsule` release-first, and the
+capsule getters (plus the golden-fixture back-compat tests, §9) land in a follow-up unit. The
+download-gating SIZE PROOF (§4) needs no capsule open and ships now.

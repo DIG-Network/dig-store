@@ -75,14 +75,12 @@ jobs:
       # SCAFFOLD EXCLUSION (issue #1247, removed on the compose pass): lifecycle.rs / store.rs /
       # chain.rs are pure `todo!()` scaffolding gated on dig-merkle 0.3.0 + dig-capsule publishing
       # (SPEC §11) — their bodies cannot be meaningfully exercised until the deps are wired, so they
-      # are ignored for coverage. The IMPLEMENTED logic (size.rs / urn.rs / types.rs) is fully
-      # counted + gated at >=80%. When the compose pass fills the `todo!()`s, drop this regex so the
-      # whole crate is gated again.
+      # The compose pass (#1247) filled the lifecycle + on-chain-getter bodies, so the WHOLE crate is
+      # now gated at >=80% lines (the earlier scaffold-only ignore regex has been dropped).
       - name: Run tests with coverage (nextest, retries 2, gate >=80% lines)
         run: >-
           cargo llvm-cov nextest --all
           --retries 2
-          --ignore-filename-regex 'src[/\\](lifecycle|store|chain)\.rs'
           --fail-under-lines 80
           --lcov --output-path lcov.info
 

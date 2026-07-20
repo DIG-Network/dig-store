@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
-## [0.3.1] - 2026-07-20
+## [0.4.0] - 2026-07-20
 
 ### Bug Fixes
 - **deps:** Bump dig-merkle 0.4 -> 0.4.3 so the re-exposed lineage getter inherits the

@@ -40,10 +40,10 @@ pub enum DigStoreError {
     #[error("on-chain proof failed: {0}")]
     Proof(String),
 
-    /// The underlying `.dig` capsule (`dig-capsule`) could not be opened, parsed, or read.
-    ///
-    /// Reserved for the deferred off-chain capsule getters (SPEC §11) — no operation in this crate
-    /// version returns it yet, but it is part of the stable surface consumers match on.
+    /// The underlying `.dig` capsule (`dig-capsule`) could not be opened, parsed, or read, or its
+    /// declared `store_id` did not match a trusted anchor. Returned by the off-chain capsule getters
+    /// ([`crate::get_capsule_identity`] / [`crate::open_capsule`], SPEC §5/§11): unreadable/tampered
+    /// module bytes and a `store_id`-vs-anchor mismatch both surface here (fail-closed).
     #[error("capsule error: {0}")]
     Capsule(String),
 

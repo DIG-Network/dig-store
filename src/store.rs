@@ -14,11 +14,9 @@
 //! melt. This yields both the ordered root history and the tip in a single pass, fail-closed at every
 //! missing hop.
 //!
-//! The OFF-CHAIN `.dig` capsule getters (`open_capsule` / `get_capsule_identity`) are DEFERRED: as of
-//! `dig-capsule 0.4.0` there is no lightweight `bytes → (store_id, root_hash)` capsule reader (the
-//! only path is the full wasmtime serve runtime), so a `Capsule::from_module_bytes` reader is being
-//! added to `dig-capsule` release-first and the capsule getters land in a follow-up unit (SPEC §11).
-//! The download-gating SIZE PROOF (SPEC §4) needs no capsule open and ships here now.
+//! The OFF-CHAIN `.dig` capsule getters (`open_capsule` / `get_capsule_identity`) live in
+//! [`crate::capsule`] — they read a capsule's declared identity from compiled `.dig` module bytes via
+//! `dig-capsule`'s lightweight, wasmtime-free reader (SPEC §5/§11), independent of any chain read.
 
 use dig_merkle::{hydrate, resolve_owner_did, MerkleError};
 

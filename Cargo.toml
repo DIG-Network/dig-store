@@ -1,0 +1,58 @@
+# dig-store — the DIG Network DataLayer store manager.
+#
+# A store is the composition of an ON-CHAIN anchor (a CHIP-0035 DataLayer singleton, owned by
+# `dig-merkle`, whose metadata carries the `.dig` merkle root + label/description/size_bucket/
+# program_hash) and an OFF-CHAIN data plane (the `.dig` capsule format, owned by `dig-capsule`).
+# `dig-store` composes the two into ONE curated store abstraction: the lifecycle of a store as a
+# coin that gets SPENT (create / modify / melt), a comprehensive set of getters over every on-chain
+# and off-chain property, and the SIZE PROOF that lets a client decide — before downloading — whether
+# a `.dig`'s real size matches what the store anchored on chain (a mismatch → discard).
+#
+# Boundary (inherited from dig-merkle): dig-store is PURE + network-free at its core. Lifecycle
+# operations return UNSIGNED spends (the wallet-backend / node signs + broadcasts); on-chain getters
+# take a `ChainSource` the caller supplies. dig-store never holds a key, never signs, never dials the
+# network itself.
+#
+# SCAFFOLD STATUS (issue #1247, design-first): dig-merkle 0.3.0 (the `size_bucket` line) and the
+# single-crate dig-capsule are not yet on crates.io. The `no git deps` rule (CLAUDE.md §3.6) forbids
+# depending on them until they publish, so the composition surface is scaffolded with `todo!()`
+# bodies gated on those publishes, while the PURE, self-contained logic (the size ladder + size
+# proof, the URN formatting, the error taxonomy) is fully implemented + tested now. The follow-up
+# pass adds the `dig-merkle` / `dig-capsule` dependencies and fills the `todo!()`s (see SPEC §11).
+[package]
+name = "dig-store"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81.0"
+license = "Apache-2.0 OR MIT"
+description = "The DIG Network DataLayer store manager: composes the on-chain CHIP-0035 DataLayer anchor (dig-merkle) with the off-chain .dig capsule format (dig-capsule) into one store abstraction — create/modify/melt a store coin (unsigned SpendBundles), a comprehensive getter surface, and the size proof that gates downloads on the on-chain-anchored size."
+repository = "https://github.com/DIG-Network/dig-store"
+readme = "README.md"
+keywords = ["dig", "chia", "datalayer", "chip-0035", "store"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
+
+[lib]
+name = "dig_store"
+# rlib for native consumers; cdylib so a later unit can compile a wasm façade over the same crate.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The crate error taxonomy (SPEC §6). thiserror 2 matches the sibling DIG crates.
+thiserror = "2"
+# SHA-256 for URN retrieval-key derivation (byte-identical to dig-urn-protocol / dig-capsule). Kept
+# self-contained until the dig-capsule facade publishes and we re-export its `DigUrn`.
+sha2 = "0.10"
+# Lowercase-hex encode/decode for URN store-id / root-hash rendering.
+hex = "0.4"
+
+# --- Follow-up composition dependencies (SPEC §11), added once they are LIVE on crates.io. ---
+# The `no git deps` rule (CLAUDE.md §3.6) forbids wiring these before they publish, so they are
+# documented here and enabled on the compose pass:
+#   dig-merkle  = "0.3"   # the on-chain DataLayer anchor + SizeBucket (size_bucket line)
+#   dig-capsule = "0.3"   # the off-chain .dig data plane (single-crate facade, post-#1270)
+#   chia-wallet-sdk = { version = "0.30", features = ["chip-0035"] }  # SpendBundle types
+#   chia-protocol   = "0.26"                                          # Coin / CoinSpend / Bytes32
+
+[dev-dependencies]
+# Ergonomic `?`-propagating Result in tests.
+anyhow = "1"

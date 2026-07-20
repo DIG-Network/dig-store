@@ -1,0 +1,7 @@
+/target/
+
+# Local code-intelligence / agent tooling artifacts — never commit these.
+/.claude/
+/.gitnexus/
+/AGENTS.md
+/CLAUDE.md

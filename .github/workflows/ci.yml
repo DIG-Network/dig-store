@@ -37,13 +37,13 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Check clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Build (release)
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Check documentation
-        run: cargo doc --no-deps
+        run: cargo doc --locked --no-deps
 
   coverage:
     name: Coverage (>=80% lines)
@@ -79,7 +79,7 @@ jobs:
       # now gated at >=80% lines (the earlier scaffold-only ignore regex has been dropped).
       - name: Run tests with coverage (nextest, retries 2, gate >=80% lines)
         run: >-
-          cargo llvm-cov nextest --all
+          cargo llvm-cov nextest --locked --all
           --retries 2
           --fail-under-lines 80
           --lcov --output-path lcov.info

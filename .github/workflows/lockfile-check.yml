@@ -1,0 +1,31 @@
+# Reusable CI gate (DIG-Network/dig_ecosystem#1469): fail a PR when Cargo.lock's own-package
+# version drifts from Cargo.toml. Catches the stale-lock trap PRE-MERGE (a hand-bumped Cargo.toml
+# version never synced into Cargo.lock passes normal checks but fails `cargo package --locked` at
+# release/publish time -> red release). Pairs with the `--locked` flags in ci.yml. Byte-identical
+# across every crate repo; the check script lives at scripts/check-lockfile-version.py.
+name: Lockfile Version Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockfile-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile-version:
+    name: Cargo.lock own-version matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # python3 (with stdlib tomllib) is preinstalled on ubuntu-latest; no setup step needed.
+      - name: Check Cargo.lock own-package version matches Cargo.toml
+        run: python3 scripts/check-lockfile-version.py

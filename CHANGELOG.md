@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.6.0] - 2026-08-05
+
+### Chores
+- **deps:** Migrate to chia 0.36.1 / chia-wallet-sdk 0.34 family (#6)
+
 ## [0.5.1] - 2026-07-22
 
 ### CI

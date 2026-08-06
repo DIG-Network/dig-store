@@ -60,7 +60,7 @@ pub enum ResolvedTier {
 /// The resolved node endpoint + how it was chosen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedNode {
-    /// Base URL, e.g. `https://dig.local:9778` or `https://rpc.dig.net`.
+    /// Base URL, e.g. `http://localhost:9778` or `https://rpc.dig.net`.
     pub base_url: String,
     pub tier: ResolvedTier,
 }

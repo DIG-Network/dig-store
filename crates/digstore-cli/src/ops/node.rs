@@ -41,18 +41,36 @@ fn override_inputs(node_flag: Option<&str>) -> Result<OverrideInputs, CliError> 
 }
 
 /// The default local-node candidate URLs the ladder probes when no override
-/// wins: `https://dig.local:{port}` and `https://localhost:{port}`. The port
-/// honors `DIG_NODE_PORT` (mirroring `dig-node`'s own env var,
-/// `dig-node/SPEC.md` §1.1 "Configuration") so a node running on a
-/// non-default port is still found.
+/// wins, each carrying the SCHEME + PORT `dig-node` actually serves that name on
+/// (#2151 — the loopback control+read RPC is plain HTTP, NOT HTTPS):
+///
+/// - `dig.local` → `http://dig.local` — dig-node serves this name on
+///   `127.0.0.2:80` (plain HTTP, no port), matching the dig-installer hosts
+///   entry (`dig-node` service `server.rs` loopback listeners, #91/#288). It
+///   also opens a best-effort `https://dig.local` on `:443`, but that privileged
+///   listener is no more reliable than the `:80` one (both best-effort), so
+///   probing plain HTTP is the simplest choice that FINDS a running node — and
+///   the always-on `localhost` tier below is the guaranteed local fallback.
+///   `DIG_NODE_PORT` does NOT move this listener, so `dig.local` never carries a
+///   port.
+/// - `localhost` → `http://localhost:{port}` — dig-node's always-on loopback
+///   control+read RPC is plain HTTP on `127.0.0.1:{port}` (default 9778). The
+///   port honors `DIG_NODE_PORT` (mirroring `dig-node`'s own env var,
+///   `dig-node/SPEC.md` §1.1 "Configuration") so a node on a non-default port is
+///   still found.
+///
+/// The node's mTLS / Sage-parity surface is a SEPARATE listener (port 9257) and
+/// is NOT this ladder (§5.3). Probing these tiers over `https://` (the pre-#2151
+/// bug) made every TLS handshake fail, so a running local node was never
+/// selected and reads fell through to `rpc.dig.net`, defeating local-first reads.
 fn local_candidate_urls() -> (String, String) {
     let port: u16 = std::env::var("DIG_NODE_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_LOCAL_NODE_PORT);
     (
-        format!("https://{DIG_LOCAL_HOST}:{port}"),
-        format!("https://localhost:{port}"),
+        format!("http://{DIG_LOCAL_HOST}"),
+        format!("http://localhost:{port}"),
     )
 }
 
@@ -152,12 +170,16 @@ mod tests {
     }
 
     #[test]
-    fn local_candidate_urls_use_default_port() {
+    fn local_candidate_urls_use_http_scheme_and_default_port() {
+        // Regression (#2151): the local tiers MUST be probed over plain HTTP —
+        // dig-node's loopback RPC is HTTP, so an `https://` candidate fails the
+        // TLS handshake and a running local node is never selected. `dig.local`
+        // is served on :80 (no port); only `localhost` carries the RPC port.
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         let (dig_local, localhost) = local_candidate_urls();
-        assert_eq!(dig_local, "https://dig.local:9778");
-        assert_eq!(localhost, "https://localhost:9778");
+        assert_eq!(dig_local, "http://dig.local");
+        assert_eq!(localhost, "http://localhost:9778");
     }
 
     #[test]
@@ -166,9 +188,50 @@ mod tests {
         clear_env();
         std::env::set_var("DIG_NODE_PORT", "12345");
         let (dig_local, localhost) = local_candidate_urls();
-        assert_eq!(dig_local, "https://dig.local:12345");
-        assert_eq!(localhost, "https://localhost:12345");
+        // `DIG_NODE_PORT` moves only the `localhost` listener; `dig.local` stays
+        // on its fixed `:80` HTTP name (dig-node config `server.rs`).
+        assert_eq!(dig_local, "http://dig.local");
+        assert_eq!(localhost, "http://localhost:12345");
         clear_env();
+    }
+
+    /// Regression (#2151): a real running local node serves plain HTTP. The
+    /// pre-fix ladder built `https://` candidate URLs, so the real health probe's
+    /// TLS handshake failed and the node was skipped — silently falling through
+    /// to `rpc.dig.net`. Stand up a plain-HTTP `/health` responder and assert the
+    /// ladder, using the PRODUCTION [`HttpHealthProbe`], SELECTS it (Localhost
+    /// tier) rather than the public gateway. This test would fail on the pre-fix
+    /// `https://` candidates (no TLS listener → probe fails → gateway).
+    #[tokio::test]
+    async fn plain_http_local_node_is_selected_over_public_gateway() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 512];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+            }
+        });
+
+        let localhost_url = format!("http://{addr}");
+        let probe = HttpHealthProbe::default();
+        // `dig.local` is not bound in the test sandbox, so the ladder falls
+        // through to the plain-HTTP localhost node standing in for a real one.
+        let resolved = resolver_resolve_node(
+            &OverrideInputs::default(),
+            "http://dig.local",
+            &localhost_url,
+            &probe,
+            DEFAULT_PROBE_TIMEOUT,
+        )
+        .await;
+        assert_eq!(resolved.base_url, localhost_url);
+        assert_eq!(resolved.tier, digstore_remote::ResolvedTier::Localhost);
     }
 
     #[tokio::test]

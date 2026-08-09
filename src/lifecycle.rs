@@ -21,6 +21,7 @@
 //! [`crate::get_store_singleton_tip`], which does the single chain read) rather than a chain source,
 //! so these builders stay pure transforms of their inputs (INV-1).
 
+use chia_bls::PublicKey;
 use dig_merkle::{melt, mint_datastore_with_kind, update_root, StoreKind};
 
 use crate::error::DigStoreResult;
@@ -29,12 +30,38 @@ use crate::types::{Bytes32, Coin, DataStore, DigDataStoreMetadata, MerkleCoinSpe
 
 /// Who is authorized to spend a store coin — the p2 ("inner") puzzle that guards it.
 ///
-/// Re-exported verbatim from [`dig_merkle::Owner`] so a caller uses ONE owner type across the whole
-/// DataLayer surface: [`StoreOwner::Standard`] is the common single-key case (dig-merkle builds the
-/// standard layer; the spend requires one `AGG_SIG_ME` over the key), and [`StoreOwner::Custom`] is
-/// the escape hatch for a pre-built inner spend (a DID-authorized delegated puzzle, a multisig, a
-/// vault).
-pub use dig_merkle::Owner as StoreOwner;
+/// [`StoreOwner::Standard`] is the single-key case: `dig-merkle` builds the standard layer, and the
+/// resulting spend requires exactly one `AGG_SIG_ME` over the key.
+///
+/// # Why this is dig-store's own type and not a re-export
+///
+/// `dig-merkle` 0.6 refuses its `Owner::Custom` (a pre-built inner spend) on ALL THREE lifecycle
+/// operations — mint, `update_root`, and `melt` — with `MerkleError::UnsupportedOwner`, because each
+/// spend must emit conditions produced INSIDE the call, which an opaque pre-built spend cannot carry.
+/// It is unreachable in practice besides: a `Spend` holds `NodePtr`s valid only in the allocator that
+/// built them, and no `dig-store` operation exposes that allocator, so no consumer can construct one
+/// that would even parse.
+///
+/// Re-exporting a variant whose every use is a guaranteed runtime error is an API that promises a
+/// composition that does not work. Owning the type instead makes the unusable case UNEXPRESSIBLE
+/// rather than merely documented. `#[non_exhaustive]` keeps a future owner kind (a real delegated or
+/// multisig authorization, once `dig-merkle` supports one) additive.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum StoreOwner {
+    /// The standard single-key p2 puzzle, owned by the given (synthetic) public key.
+    Standard(PublicKey),
+}
+
+impl From<StoreOwner> for dig_merkle::Owner {
+    /// Lowers a store owner onto the `dig-merkle` owner the spend builders take. Total by
+    /// construction: every expressible [`StoreOwner`] maps to an owner `dig-merkle` accepts.
+    fn from(owner: StoreOwner) -> Self {
+        match owner {
+            StoreOwner::Standard(key) => dig_merkle::Owner::Standard(key),
+        }
+    }
+}
 
 /// The parameters that describe a store's on-chain metadata at creation (SPEC §3.1).
 ///
@@ -64,10 +91,17 @@ pub struct CreateStoreParams {
 /// first root, the required size bucket, and optional metadata. The store is minted with the file
 /// launcher discriminator ([`StoreKind::File`]), byte-identical to existing on-chain DIG stores.
 ///
-/// To root a store in a DID, pass the DID-authorized coin as `parent_coin` with a
-/// [`StoreOwner::Custom`] inner spend satisfying the DID puzzle — owner discovery
-/// ([`crate::get_store_did_owner`]) then resolves the DID via `dig-merkle`. Returns the UNSIGNED
-/// launch spend.
+/// Returns the UNSIGNED launch spend.
+///
+/// # This builder mints from an ORDINARY funding coin, never a DID
+///
+/// A DID is a singleton, so it cannot parent the odd-amount launcher directly — it must interpose an
+/// even-amount intermediate coin, and the resulting launcher is built by the CALLER and handed to
+/// `dig_merkle::mint_datastore_launch_with_kind` (which also returns the parent conditions the DID
+/// spend must emit). `create_store` composes the simple funding-coin path only, so it cannot mint a
+/// DID-rooted store; a caller needing one drives that `dig-merkle` API directly until `dig-store`
+/// exposes a builder for it. [`crate::get_store_did_owner`] still READS the owning DID of any store
+/// minted that way.
 ///
 /// # Errors
 ///
@@ -82,7 +116,7 @@ pub fn create_store(
     Ok(mint_datastore_with_kind(
         StoreKind::File,
         parent_coin,
-        owner,
+        owner.into(),
         params.root_hash,
         params.label,
         params.description,
@@ -117,7 +151,7 @@ pub fn modify_store(
         root_hash: new_root,
         ..store.info.metadata.clone()
     };
-    Ok(update_root(store, owner, new_metadata)?)
+    Ok(update_root(store, owner.into(), new_metadata)?)
 }
 
 /// Terminally spends (melts) the store's tip coin, leaving no successor (SPEC §3.3).
@@ -133,7 +167,7 @@ pub fn melt_store(
     store: &DataStore<DigDataStoreMetadata>,
     owner: StoreOwner,
 ) -> DigStoreResult<MerkleCoinSpend> {
-    Ok(melt(store, owner)?)
+    Ok(melt(store, owner.into())?)
 }
 
 #[cfg(test)]
@@ -141,6 +175,22 @@ mod tests {
     use super::*;
     use chia_puzzle_types::standard::StandardArgs;
     use chia_wallet_sdk::test::Simulator;
+
+    /// The one expressible owner lowers onto the one `dig-merkle` owner the spend builders accept.
+    ///
+    /// The value of this test is what it CANNOT be written against: `dig_merkle::Owner::Custom` is
+    /// refused by mint, `update_root`, and `melt` alike, and no `StoreOwner` can name it — so the
+    /// lowering is total by construction and no lifecycle call can reach `UnsupportedOwner`.
+    #[test]
+    fn store_owner_lowers_to_the_standard_merkle_owner() {
+        let key = PublicKey::default();
+        match dig_merkle::Owner::from(StoreOwner::Standard(key)) {
+            dig_merkle::Owner::Standard(lowered) => assert_eq!(lowered, key),
+            dig_merkle::Owner::Custom(_) => {
+                panic!("a standard owner never lowers to a custom spend")
+            }
+        }
+    }
 
     /// Mints a store on the simulator and returns the owner keypair + the settled eve DataStore, so
     /// lifecycle tests start from a real on-chain store.

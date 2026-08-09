@@ -57,14 +57,27 @@ pub fn get_latest_root_urn<C: ChainSource>(chain: &C, store_id: Bytes32) -> DigS
 // On-chain getters — proven against the chain via the shared lineage walk (NC-9).
 // ---------------------------------------------------------------------------
 
-/// The DID that owns the store, resolved by walking the launcher's parent spend on chain (NC-9).
+/// The DID that owns the store, resolved by walking the launcher's creator lineage on chain (NC-9).
 ///
 /// Returns `None` for a store minted from an ordinary (non-DID) coin. Fail-closed at every missing
 /// lineage step (SPEC §3.7). Delegated to [`dig_merkle::resolve_owner_did`].
 ///
+/// # The walk is bounded at TWO creator hops, and the second is EARNED
+///
+/// Hop one is the coin that created the launcher; a DID there is the answer. A DID is itself a
+/// singleton whose inner puzzle may emit only ONE odd-amount `CREATE_COIN` (its own successor), so it
+/// cannot parent the odd-amount launcher directly and must interpose an even-amount intermediate
+/// coin. Hop two is therefore taken ONLY when the hop-one creator is STRUCTURALLY the
+/// `nft_intermediate_launcher` puzzle curried to the singleton launcher — never as a general parent
+/// climb, which would both be a DoS over records an untrusted source controls and mis-attribute an
+/// ordinary store whose funding coin merely happened to descend from a DID.
+///
 /// # Errors
 ///
-/// Returns a [`DigStoreResult`] error if the chain source fails.
+/// Returns [`DigStoreError::Proof`] if the chain source FAILS, and equally if it ANSWERS with a spend
+/// the coin never committed to — a `puzzle_reveal` that does not hash to the coin's `puzzle_hash`.
+/// The distinction is the point: a source that LIED is an error, while an honest "this store is not
+/// DID-owned" is `Ok(None)`. The two are never collapsed.
 pub fn get_store_did_owner<C: ChainSource>(
     chain: &C,
     store_id: Bytes32,

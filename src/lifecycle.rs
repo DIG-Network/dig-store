@@ -38,13 +38,11 @@ use crate::types::{Bytes32, Coin, DataStore, DigDataStoreMetadata, MerkleCoinSpe
 /// `dig-merkle` 0.6 refuses its `Owner::Custom` (a pre-built inner spend) on ALL THREE lifecycle
 /// operations — mint, `update_root`, and `melt` — with `MerkleError::UnsupportedOwner`, because each
 /// spend must emit conditions produced INSIDE the call, which an opaque pre-built spend cannot carry.
-/// It is unreachable in practice besides: a `Spend` holds `NodePtr`s valid only in the allocator that
-/// built them, and no `dig-store` operation exposes that allocator, so no consumer can construct one
-/// that would even parse.
+/// So every use of that variant is a guaranteed runtime error, whether or not a caller can build one.
 ///
-/// Re-exporting a variant whose every use is a guaranteed runtime error is an API that promises a
-/// composition that does not work. Owning the type instead makes the unusable case UNEXPRESSIBLE
-/// rather than merely documented. `#[non_exhaustive]` keeps a future owner kind (a real delegated or
+/// Re-exporting such a variant is an API that promises a composition that does not work. Owning the
+/// type instead makes the unusable case UNEXPRESSIBLE rather than merely documented — the argument
+/// rests on the refusal above, not on any claim about what a caller could construct. `#[non_exhaustive]` keeps a future owner kind (a real delegated or
 /// multisig authorization, once `dig-merkle` supports one) additive.
 #[derive(Debug, Clone)]
 #[non_exhaustive]

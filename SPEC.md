@@ -48,8 +48,14 @@ hold across the whole crate:
 
 Three operations span a store's life; each is a spend of the singleton and returns an UNSIGNED
 `MerkleCoinSpend` (INV-2, re-exported verbatim from `dig-merkle`: the coin spends + the recreated
-child `DataStore`). The on-chain encoding is `dig-merkle`'s (INV-3). `StoreOwner` is a re-export of
-`dig_merkle::Owner` (`Standard(PublicKey)` | `Custom(Spend)`).
+child `DataStore`). The on-chain encoding is `dig-merkle`'s (INV-3).
+
+`StoreOwner` is `dig-store`'s OWN `#[non_exhaustive]` enum with a single variant,
+`Standard(PublicKey)`, lowered onto `dig_merkle::Owner` by a total `From`. It is deliberately NOT a
+re-export of `dig_merkle::Owner`: that type carries a `Custom(Spend)` variant which `dig-merkle` 0.6
+refuses on mint, `update_root`, and `melt` alike, so a custom inner spend is **unexpressible** through
+`dig-store` — not merely undocumented. A future owner kind MUST be added as a new variant (additive,
+§1).
 
 ### 3.1 `create_store(parent_coin, owner, owner_puzzle_hash, params) -> MerkleCoinSpend`
 
@@ -121,11 +127,21 @@ the chain (INV-4).
 - On-chain (NC-9), all generic over the canonical `dig_chainsource_interface::ChainSource` (§7). The
   reads share ONE lineage walk (launcher spend → hydrate each generation → follow the singleton to the
   unspent tip; a `MissingLineage` hydration marks a melt), fail-closed at every missing hop:
-  - `get_store_did_owner(chain, store_id) -> Option<DidRef>` — the owning DID, resolved by walking the
-    launcher's parent spend (`dig_merkle::resolve_owner_did`); `None` for a non-DID mint. The two
-    fail-closed outcomes are DISTINCT: an honest chain answering "no DID" is `None`, while a source
-    that answers with a spend the coin never committed to (a `puzzle_reveal` that does not hash to the
-    coin's `puzzle_hash`) MUST surface as `DigStoreError::Proof` — never as an absent DID.
+  - `get_store_did_owner(chain, store_id) -> Option<DidRef>` — the owning DID
+    (`dig_merkle::resolve_owner_did`); `None` for a non-DID mint.
+
+    The walk is bounded at **TWO creator hops**, and the second MUST be earned. Hop one is the coin
+    that created the launcher; a DID there is the answer. A DID is itself a singleton and its inner
+    puzzle may emit only ONE odd-amount `CREATE_COIN` (its own successor), so it cannot parent the
+    odd-amount launcher directly and must interpose an even-amount intermediate coin. Hop two is
+    therefore taken ONLY when the hop-one creator is STRUCTURALLY the `nft_intermediate_launcher`
+    puzzle curried to the singleton launcher. It MUST NOT be a general parent climb: an unbounded
+    walk over records an untrusted source controls is a DoS, and it would mis-attribute an ordinary
+    store whose funding coin merely happened to descend from a DID. Anything else stops at `None`.
+
+    The two fail-closed outcomes are DISTINCT: an honest chain answering "no DID" is `None`, while a
+    source that answers with a spend the coin never committed to (a `puzzle_reveal` that does not
+    hash to the coin's `puzzle_hash`) MUST surface as `DigStoreError::Proof` — never as an absent DID.
   - `get_store_singleton_tip(chain, store_id) -> DataStore<DigDataStoreMetadata>` — the current
     confirmed tip, fully hydrated so it feeds `modify_store` / `melt_store` directly; errors if the
     store is absent or melted (no live tip).
@@ -257,9 +273,13 @@ off-chain capsule-getter body:
 - `dig-merkle` marks `MerkleError` and `DatastoreLaunch` `#[non_exhaustive]`. `dig-store`'s
   `From<MerkleError>` conversion therefore carries a wildcard arm that MUST surface an unrecognised
   variant as `DigStoreError::Spend` with its detail preserved — a new upstream failure mode is never
-  swallowed. `dig-store` consumes neither `DatastoreLaunch` nor the caller-supplied-`Launcher` legality
-  guard, both of which belong to `mint_datastore_launch_with_kind` (the DID-rooted launch path above).
-- **`dig-chainsource-interface 0.1`** — the canonical `ChainSource` every on-chain getter is generic
+  swallowed. `dig-store` never receives a `DatastoreLaunch`: `mint_datastore_with_kind` consumes the
+  one it builds internally. The caller-supplied-`Launcher` legality guard DOES run on every
+  `create_store` — `mint_datastore_with_kind` delegates to `mint_datastore_launch_with_kind` with a
+  fixed `Launcher::new(parent_coin.coin_id(), 1)` — but because `dig-store` never SUPPLIES a
+  `Launcher`, the guard's inputs are fixed-legal (an odd singleton amount of 1) and it can never
+  refuse. A caller needing a non-default launcher shape drives that `dig-merkle` API directly (§3.1).
+- **`dig-chainsource-interface 0.3`** — the canonical `ChainSource` every on-chain getter is generic
   over (its associated `Error` is mapped into `DigStoreError::Proof`).
 - **`dig-urn-protocol 0.1`** — the canonical `DigUrn` the URN helpers delegate to (the same definition
   `dig-capsule` re-exports at `dig_capsule::urn`; `dig-store` depends on the foundation owner directly so

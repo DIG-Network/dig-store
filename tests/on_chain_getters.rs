@@ -234,6 +234,41 @@ fn plain_store_has_no_owning_did() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// NC-9 adversarial regression (dig-merkle 0.6 behaviour): a chain source that answers the owner walk
+/// with a spend the coin never committed to — a `puzzle_reveal` that does not hash to the coin's
+/// `puzzle_hash` — is an ERROR, never the honest "this store has no DID".
+///
+/// The distinction is the whole point, so the fixture varies exactly ONE actor against the honest
+/// control above ([`plain_store_has_no_owning_did`]): the same store, the same honest launcher spend,
+/// and a creator spend whose reveal has been swapped for the launcher's. Both cases would collapse to
+/// `Ok(None)` under an implementation that treats "not DID-owned" and "the source lied" alike — which
+/// is exactly what `dig-merkle` 0.5 did, so this test fails against that version.
+#[test]
+fn a_lying_creator_reveal_is_an_error_not_an_absent_did() -> anyhow::Result<()> {
+    let mut sim = Simulator::new();
+    let (owner, eve, mint) = minted(&mut sim, SizeBucket::from_exponent(1).unwrap())?;
+    let store_id = eve.info.launcher_id;
+
+    let launcher_spend = spend_of(&mint, store_id);
+    let creator_id = launcher_spend.coin.parent_coin_info;
+
+    // The creator coin, paired with a reveal it never committed to (the launcher's singleton puzzle).
+    let mut lying_creator = spend_of(&mint, owner.coin.coin_id());
+    lying_creator.puzzle_reveal = launcher_spend.puzzle_reveal.clone();
+
+    let chain = MockChainSource::new()
+        .with_spend(store_id, launcher_spend)
+        .with_spend(creator_id, lying_creator);
+
+    let error = get_store_did_owner(&chain, store_id)
+        .expect_err("a reveal the coin never committed to must fail closed, not answer `None`");
+    assert!(
+        matches!(error, DigStoreError::Proof(ref detail) if detail.contains("owner-DID discovery")),
+        "the lie surfaces as a proof failure, got {error:?}"
+    );
+    Ok(())
+}
+
 /// An unknown store id fails closed: the launcher spend is absent, so the walk errors rather than
 /// fabricating a tip.
 #[test]

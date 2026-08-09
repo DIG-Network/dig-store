@@ -27,9 +27,11 @@
 //!      cross-checks the declared `store_id` against a trusted anchor (fail-closed).
 //!
 //! The coin/identity types ([`Bytes32`], [`Coin`], [`CoinSpend`], [`DataStore`], [`DidRef`],
-//! [`DigDataStoreMetadata`], [`MerkleCoinSpend`]) and the owner type ([`StoreOwner`]) are re-exported
-//! VERBATIM from `dig-merkle`, and [`ChainSource`] from `dig-chainsource-interface`, so a consumer
-//! depends on ONE canonical shape across the whole DataLayer surface.
+//! [`DigDataStoreMetadata`], [`MerkleCoinSpend`]) are re-exported VERBATIM from `dig-merkle`, and
+//! [`ChainSource`] from `dig-chainsource-interface`, so a consumer depends on ONE canonical shape
+//! across the whole DataLayer surface. The owner type [`StoreOwner`] is the deliberate exception —
+//! `dig-store` owns it so that `dig_merkle::Owner::Custom`, which `dig-merkle` refuses on every
+//! lifecycle operation, is unexpressible here rather than a documented runtime error.
 //!
 //! ## Invariants
 //!
@@ -84,7 +86,7 @@ pub use types::{
 /// Derives the [`LineageProof`] a child singleton spend must carry to be recreated from a hydrated
 /// store (the lineage-getter surface). Re-exported verbatim from `dig-merkle` (the byte-source-of-
 /// truth, INV-4) so a consumer builds the next spend against a store the walk returned without a
-/// separate `dig-merkle` dependency. `dig-merkle` 0.4.3 derives its `parent_inner_puzzle_hash` via
+/// separate `dig-merkle` dependency. `dig-merkle` derives its `parent_inner_puzzle_hash` via
 /// the DataLayer updater path, so the resulting child spend is consensus-valid (no
 /// `AssertMyParentIdFailed`, #1332).
 pub use dig_merkle::child_lineage_proof;

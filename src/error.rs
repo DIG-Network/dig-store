@@ -86,6 +86,29 @@ mod tests {
         assert!(matches!(err, DigStoreError::Spend(_)));
     }
 
+    /// `MerkleError` is `#[non_exhaustive]`, so the conversion's wildcard arm is what a variant added
+    /// upstream will land in. It must SURFACE that variant as a real error carrying its detail —
+    /// never swallow it into a success or a generic message a caller cannot diagnose.
+    ///
+    /// The two probes are the variants `dig-merkle` 0.6 added guards for, and neither is named
+    /// explicitly by the conversion, so each genuinely exercises the wildcard.
+    #[test]
+    fn a_variant_the_conversion_does_not_name_still_surfaces_its_detail() {
+        for merkle in [
+            dig_merkle::MerkleError::UnsupportedOwner("use mint_datastore_launch_with_kind"),
+            dig_merkle::MerkleError::Chain("the puzzle reveal does not hash".into()),
+        ] {
+            let detail = merkle.to_string();
+            match DigStoreError::from(merkle) {
+                DigStoreError::Spend(message) => assert_eq!(
+                    message, detail,
+                    "the upstream detail must reach the caller verbatim"
+                ),
+                other => panic!("an unnamed merkle variant must surface as Spend, got {other:?}"),
+            }
+        }
+    }
+
     /// The `Display` rendering carries the mismatch detail for logs.
     #[test]
     fn size_proof_mismatch_displays_detail() {

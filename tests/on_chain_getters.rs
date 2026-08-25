@@ -10,7 +10,7 @@ use dig_store::{
     capsule_urn, create_store, get_latest_root, get_latest_root_urn, get_root_history,
     get_store_description, get_store_did_owner, get_store_label, get_store_program_hash,
     get_store_singleton_tip, get_store_size_bucket, melt_store, modify_store, Bytes32, CoinSpend,
-    CreateStoreParams, DataStore, DigDataStoreMetadata, DigStoreError, MerkleCoinSpend, SizeBucket,
+    CreateStoreParams, Datastore, DigDataStoreMetadata, DigStoreError, MerkleCoinSpend, SizeBucket,
     StoreOwner,
 };
 
@@ -25,13 +25,13 @@ fn spend_of(built: &MerkleCoinSpend, coin_id: Bytes32) -> CoinSpend {
 }
 
 /// Mints a store (root `0x5a`, label "docs", the given size) on `sim`, settles it, and returns the
-/// owner keypair, the eve DataStore, and the launcher/owner spends needed to seed a chain source.
+/// owner keypair, the eve Datastore, and the launcher/owner spends needed to seed a chain source.
 fn minted(
     sim: &mut Simulator,
     size: SizeBucket,
 ) -> anyhow::Result<(
     chia_wallet_sdk::test::BlsPairWithCoin,
-    DataStore<DigDataStoreMetadata>,
+    Datastore<DigDataStoreMetadata>,
     MerkleCoinSpend,
 )> {
     let owner = sim.bls(1_000_000);
@@ -54,12 +54,12 @@ fn minted(
     Ok((owner, eve, built))
 }
 
-/// Mints a store with the given root under a fresh owner, settles it, and returns the eve DataStore
+/// Mints a store with the given root under a fresh owner, settles it, and returns the eve Datastore
 /// plus the mint's coin spends — for building hostile chain-source fixtures across two stores.
 fn mint_root(
     sim: &mut Simulator,
     root: Bytes32,
-) -> anyhow::Result<(DataStore<DigDataStoreMetadata>, MerkleCoinSpend)> {
+) -> anyhow::Result<(Datastore<DigDataStoreMetadata>, MerkleCoinSpend)> {
     let owner = sim.bls(1_000_000);
     let owner_ph: Bytes32 = StandardArgs::curry_tree_hash(owner.pk).into();
     let built = create_store(

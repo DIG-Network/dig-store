@@ -6,7 +6,7 @@
 //!
 //! - [`Bytes32`] — a 32-byte identifier (a `store_id` / `launcher_id`, a merkle root, a DID id);
 //! - [`Coin`] / [`CoinSpend`] — the Chia coin + confirmed spend;
-//! - [`DataStore`] / [`DigDataStoreMetadata`] — the hydrated DataLayer coin + its on-chain metadata;
+//! - [`Datastore`] / [`DigDataStoreMetadata`] — the hydrated DataLayer coin + its on-chain metadata;
 //! - [`DidRef`] — a reference to an owning DID by its launcher id;
 //! - [`MerkleCoinSpend`] — the unsigned result of a lifecycle operation (coin spends + child store);
 //! - [`Proof`] / [`LineageProof`] — a singleton's eve-or-lineage proof and the lineage proof a child
@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 
 pub use dig_merkle::{
-    Bytes32, Coin, CoinSpend, DataStore, DelegatedPuzzle, DidRef, DigDataStoreMetadata,
+    Bytes32, Coin, CoinSpend, Datastore, DelegatedPuzzle, DidRef, DigDataStoreMetadata,
     LineageProof, MerkleCoinSpend, Proof,
 };
 

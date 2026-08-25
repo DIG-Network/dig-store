@@ -26,7 +26,7 @@
 //!      recovers a capsule's declared `(store_id, root_hash)`, and [`open_capsule`] additionally
 //!      cross-checks the declared `store_id` against a trusted anchor (fail-closed).
 //!
-//! The coin/identity types ([`Bytes32`], [`Coin`], [`CoinSpend`], [`DataStore`], [`DidRef`],
+//! The coin/identity types ([`Bytes32`], [`Coin`], [`CoinSpend`], [`Datastore`], [`DidRef`],
 //! [`DigDataStoreMetadata`], [`MerkleCoinSpend`]) are re-exported VERBATIM from `dig-merkle`, and
 //! [`ChainSource`] from `dig-chainsource-interface`, so a consumer depends on ONE canonical shape
 //! across the whole DataLayer surface. The owner type [`StoreOwner`] is the deliberate exception —
@@ -78,7 +78,7 @@ pub use store::{
     get_store_size_bucket, get_store_status, get_store_urn, DEFAULT_CONFIRMATION_TARGET,
 };
 pub use types::{
-    Bytes32, CapsuleIdentity, Coin, CoinSpend, Confirmations, DataStore, DelegatedPuzzle, DidRef,
+    Bytes32, CapsuleIdentity, Coin, CoinSpend, Confirmations, Datastore, DelegatedPuzzle, DidRef,
     DigDataStoreMetadata, LineageProof, MerkleCoinSpend, Proof, RootHistory, StoreStatus,
     StoreStatusKind,
 };

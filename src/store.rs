@@ -26,7 +26,7 @@ use crate::chain::ChainSource;
 use crate::error::{DigStoreError, DigStoreResult};
 use crate::size::SizeBucket;
 use crate::types::{
-    Bytes32, Confirmations, DataStore, DidRef, DigDataStoreMetadata, RootHistory, StoreStatus,
+    Bytes32, Confirmations, Datastore, DidRef, DigDataStoreMetadata, RootHistory, StoreStatus,
     StoreStatusKind,
 };
 
@@ -97,7 +97,7 @@ pub fn get_store_did_owner<C: ChainSource>(
 pub fn get_store_singleton_tip<C: ChainSource>(
     chain: &C,
     store_id: Bytes32,
-) -> DigStoreResult<DataStore<DigDataStoreMetadata>> {
+) -> DigStoreResult<Datastore<DigDataStoreMetadata>> {
     walk_lineage(chain, store_id)?.tip.ok_or_else(|| {
         DigStoreError::Proof(format!("store {store_id} has been melted (no live tip)"))
     })
@@ -332,8 +332,8 @@ fn to_hex(value: Bytes32) -> String {
 struct Lineage {
     /// Every anchored merkle root, oldest → newest.
     roots: Vec<Bytes32>,
-    /// The live tip DataStore, or `None` if the store has been melted (its lineage ends in a melt).
-    tip: Option<DataStore<DigDataStoreMetadata>>,
+    /// The live tip Datastore, or `None` if the store has been melted (its lineage ends in a melt).
+    tip: Option<Datastore<DigDataStoreMetadata>>,
 }
 
 /// The three terminal outcomes of a lineage walk, distinguished so [`get_store_status`] can report
@@ -351,8 +351,8 @@ enum WalkOutcome {
     Live {
         /// Every anchored root, oldest → newest (the last is the live root).
         roots: Vec<Bytes32>,
-        /// The unspent live tip DataStore (boxed — it is far larger than the other variants).
-        tip: Box<DataStore<DigDataStoreMetadata>>,
+        /// The unspent live tip Datastore (boxed — it is far larger than the other variants).
+        tip: Box<Datastore<DigDataStoreMetadata>>,
     },
 }
 
@@ -622,8 +622,8 @@ mod tests {
         Ok((store_id, chain))
     }
 
-    /// The live tip DataStore the lineage walk resolves for `store_id`.
-    fn live_tip(chain: &MockChainSource, store_id: Bytes32) -> DataStore<DigDataStoreMetadata> {
+    /// The live tip Datastore the lineage walk resolves for `store_id`.
+    fn live_tip(chain: &MockChainSource, store_id: Bytes32) -> Datastore<DigDataStoreMetadata> {
         walk_lineage(chain, store_id)
             .expect("walk succeeds")
             .tip

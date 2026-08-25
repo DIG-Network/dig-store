@@ -17,7 +17,7 @@
 //! `SpendBundle`, and submits it. The on-chain encoding is minimal (NC-8) — delegated wholesale to
 //! `dig-merkle`, which owns the byte layout.
 //!
-//! `modify_store` / `melt_store` take the already-hydrated tip [`DataStore`] (from
+//! `modify_store` / `melt_store` take the already-hydrated tip [`Datastore`] (from
 //! [`crate::get_store_singleton_tip`], which does the single chain read) rather than a chain source,
 //! so these builders stay pure transforms of their inputs (INV-1).
 
@@ -26,7 +26,7 @@ use dig_merkle::{melt, mint_datastore_with_kind, update_root, StoreKind};
 
 use crate::error::DigStoreResult;
 use crate::size::SizeBucket;
-use crate::types::{Bytes32, Coin, DataStore, DigDataStoreMetadata, MerkleCoinSpend};
+use crate::types::{Bytes32, Coin, Datastore, DigDataStoreMetadata, MerkleCoinSpend};
 
 /// Who is authorized to spend a store coin — the p2 ("inner") puzzle that guards it.
 ///
@@ -141,7 +141,7 @@ pub fn create_store(
 ///
 /// Returns a [`DigStoreResult`] error if the spend cannot be constructed.
 pub fn modify_store(
-    store: &DataStore<DigDataStoreMetadata>,
+    store: &Datastore<DigDataStoreMetadata>,
     owner: StoreOwner,
     new_root: Bytes32,
 ) -> DigStoreResult<MerkleCoinSpend> {
@@ -162,7 +162,7 @@ pub fn modify_store(
 ///
 /// Returns a [`DigStoreResult`] error if the spend cannot be constructed.
 pub fn melt_store(
-    store: &DataStore<DigDataStoreMetadata>,
+    store: &Datastore<DigDataStoreMetadata>,
     owner: StoreOwner,
 ) -> DigStoreResult<MerkleCoinSpend> {
     Ok(melt(store, owner.into())?)
@@ -190,14 +190,14 @@ mod tests {
         }
     }
 
-    /// Mints a store on the simulator and returns the owner keypair + the settled eve DataStore, so
+    /// Mints a store on the simulator and returns the owner keypair + the settled eve Datastore, so
     /// lifecycle tests start from a real on-chain store.
     fn minted_store(
         sim: &mut Simulator,
         size: SizeBucket,
     ) -> anyhow::Result<(
         chia_wallet_sdk::test::BlsPairWithCoin,
-        DataStore<DigDataStoreMetadata>,
+        Datastore<DigDataStoreMetadata>,
     )> {
         let owner = sim.bls(1_000_000);
         let owner_ph: Bytes32 = StandardArgs::curry_tree_hash(owner.pk).into();

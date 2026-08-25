@@ -21,7 +21,7 @@ use chia_puzzle_types::standard::StandardArgs;
 use chia_wallet_sdk::test::{BlsPairWithCoin, Simulator};
 
 use dig_store::{
-    child_lineage_proof, create_store, modify_store, Bytes32, CreateStoreParams, DataStore,
+    child_lineage_proof, create_store, modify_store, Bytes32, CreateStoreParams, Datastore,
     DigDataStoreMetadata, Proof, SizeBucket, StoreOwner,
 };
 
@@ -29,7 +29,7 @@ use dig_store::{
 /// store on chain, so the test starts from a real DataLayer coin.
 fn minted_store(
     sim: &mut Simulator,
-) -> anyhow::Result<(BlsPairWithCoin, DataStore<DigDataStoreMetadata>)> {
+) -> anyhow::Result<(BlsPairWithCoin, Datastore<DigDataStoreMetadata>)> {
     let owner = sim.bls(1_000_000);
     let owner_ph: Bytes32 = StandardArgs::curry_tree_hash(owner.pk).into();
     let built = create_store(
@@ -105,7 +105,7 @@ fn dig_store_child_lineage_proof_produces_a_consensus_valid_child_spend() -> any
 
     // Reconstruct store2 with its proof supplied SOLELY by child_lineage_proof(store1) — never the
     // parsed proof — so the spend below stands or falls on the derived proof alone.
-    let store2_via_clp = DataStore::new(
+    let store2_via_clp = Datastore::new(
         store2.coin,
         Proof::Lineage(child_lineage_proof(&store1)?),
         store2.info.clone(),
